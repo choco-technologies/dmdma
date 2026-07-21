@@ -1,16 +1,30 @@
-set(DMOD_MODULE_NAME        dmdma_test)
 set(DMOD_MODULE_VERSION     ${PROJECT_VERSION})
 set(DMOD_AUTHOR_NAME        "Patryk Kubiak")
 set(DMOD_STACK_SIZE         2048)
 
-# dmdma_test talks to dmdma_port.h directly (the same Built-in API dmdma.c
-# itself calls) - it is an on-target diagnostic Application, not a
-# dmod_add_test()/DMOD_TEST_STEP unit test, since it needs argv (the file
-# path to copy) and is meant to be run manually from the shell.
-dmod_add_executable(${DMOD_MODULE_NAME} ${DMOD_MODULE_VERSION}
-    dmdma_test.c
+# Two independent on-target diagnostics (Applications, not
+# dmod_add_test()/DMOD_TEST_STEP unit tests - both need argv and are meant
+# to be run manually from the shell):
+
+# dmdma_test_port talks to dmdma_port.h directly (the same Built-in API
+# dmdma.c itself calls) - only dmdma_port needs to be bundled alongside it,
+# no dmdevfs/dmdrvi/config involved.
+dmod_add_executable(dmdma_test_port ${DMOD_MODULE_VERSION}
+    dmdma_test_port.c
 )
 
-target_link_libraries(${DMOD_MODULE_NAME}
+target_link_libraries(dmdma_test_port
     dmdma_port_if
+)
+
+# dmdma_test_dev instead opens the real device node dmdevfs exposes once
+# dmdma is configured (e.g. /dev/dmdma1/0) and drives it purely through the
+# VFS file interface (open/ioctl/close) - exercising the real dmdrvi DIF
+# wiring end to end, not just the port.
+dmod_add_executable(dmdma_test_dev ${DMOD_MODULE_VERSION}
+    dmdma_test_dev.c
+)
+
+target_include_directories(dmdma_test_dev PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
 )
