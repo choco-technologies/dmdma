@@ -1,6 +1,7 @@
 # dmdma
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/choco-technologies/dmdma/actions/workflows/ci.yml/badge.svg)](https://github.com/choco-technologies/dmdma/actions/workflows/ci.yml)
 
 DMOD DMA controller driver module.
 
