@@ -2,11 +2,20 @@
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-dmdma DMOD library module.
+DMOD DMA controller driver module.
 
 ## Description
 
-TODO: describe what this module does.
+`dmdma` is a driver module implementing the `dmdrvi` interface for STM32 DMA
+controllers (DMA1/DMA2 on STM32F4/F7). Each physical controller is exposed
+as `/dev/dmdmaN`, with every stream the controller has as its own openable
+minor device (`/dev/dmdmaN/0`, `/dev/dmdmaN/1`, ...) - opening one reserves
+it, closing releases it. Transfers (memory-to-memory, or
+peripheral↔memory for a consumer driver like a future DMA-backed `dmuart`)
+are configured and driven entirely through `ioctl()`, since a DMA stream has
+no natural byte-stream semantics.
+
+See [docs/dmdma.md](docs/dmdma.md) for the full picture and usage examples.
 
 ## Building
 
@@ -30,19 +39,32 @@ make DMOD_MODE=DMOD_MODULE DMOD_DIR=/path/to/dmod
 
 ## Usage
 
-This library module provides functions that can be used by other modules:
-
 ```c
-#include "dmdma.h"
+/* The common case: open a stream through the dmdrvi device node dmdevfs
+ * exposes once dmdma is configured (see configs/). */
+#include "dmdma_types.h"
+int fd = open("/dev/dmdma1/0", O_RDWR);
+
+/* Driver authors talking to the port directly instead - see
+ * docs/port-api.md. */
+#include "dmdma_port.h"
 ```
 
 ## Documentation
 
 See the `docs/` directory:
 
-- **[api-reference.md](docs/api-reference.md)** - Complete API documentation
+- **[dmdma.md](docs/dmdma.md)** - Driver overview, numbering scheme,
+  configuration, and usage examples
+- **[api.md](docs/api.md)** - `dmdma`'s `dmdrvi`-facing types and full
+  `dmdma_ioctl_cmd_t` reference
+- **[port-api.md](docs/port-api.md)** - `dmdma_port`'s Built-in API, for
+  driver authors calling it directly instead of going through a device node
+- **[port-implementation.md](docs/port-implementation.md)** - How to add a
+  new MCU port
 
-View documentation using `dmf-man dmdma`.
+View documentation using `dmf-man dmdma` / `dmf-man dmdma api` /
+`dmf-man dmdma_port port-api`.
 
 ## Hardware Port
 

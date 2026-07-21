@@ -14,6 +14,11 @@ dmd=./${module}.dmd => ${destination}/${module}.dmd [origin=${dmf_dir}/${module}
 # Version information
 version=./${module}_version.txt => ${destination}/${module}_version.txt [origin=${dmf_dir}/${module}_version.txt]
 
+# === Documentation ===
+# Same docs/ as the main dmdma package (see dmdma.dmr) - covers the whole
+# driver+port pair, not just the core module, so dmdma_port ships it too.
+docs=./docs => ${destination}/${module}/docs [origin=${repo_dir}/docs]
+
 # === Header Files ===
 # Full include directory with all headers and generated platform definitions header
 inc=./include => ${destination}/${module}/include [origin=${repo_dir}/include] [origin=${build_dir}/src/port/${module}_defs.h]

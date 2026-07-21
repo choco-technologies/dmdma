@@ -6,5 +6,10 @@ $include https://github.com/choco-technologies/dmdma/releases/download/vlatest/v
 # the release workflow packages this repo per DMOD_CPU_FAMILY, not per full
 # architecture (see dmfmc/manifest.dmm or dmuart/manifest.dmm for the
 # real-world reference).
-dmdma      https://github.com/choco-technologies/dmdma/releases/download/v<version>/dmdma-v<version>-<cpu_family>.zip
-dmdma_port https://github.com/choco-technologies/dmdma/releases/download/v<version>/dmdma_port-v<version>-<cpu_family>.zip
+dmdma           https://github.com/choco-technologies/dmdma/releases/download/v<version>/dmdma-v<version>-<cpu_family>.zip
+dmdma_port      https://github.com/choco-technologies/dmdma/releases/download/v<version>/dmdma_port-v<version>-<cpu_family>.zip
+
+# On-target diagnostics (see tests/) - each is its own DMOD module/package,
+# same as dmdma_port above, not a copy of the main module's zip.
+dmdma_test_port https://github.com/choco-technologies/dmdma/releases/download/v<version>/dmdma_test_port-v<version>-<cpu_family>.zip
+dmdma_test_dev  https://github.com/choco-technologies/dmdma/releases/download/v<version>/dmdma_test_dev-v<version>-<cpu_family>.zip
