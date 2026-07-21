@@ -1,5 +1,6 @@
 #include "dmod.h"
 #include "dmdma_types.h"
+#include "dmdma_test_heap.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -113,13 +114,21 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    uint8_t *src = Dmod_Malloc(DMDMA_TEST_BYTES);
-    uint8_t *dst = Dmod_Malloc(DMDMA_TEST_BYTES);
+    dmheap_context_t *heap = dmheap_get_context_by_name(DMDMA_TEST_HEAP_NAME);
+    if (heap == NULL)
+    {
+        Dmod_FileClose(handle);
+        Dmod_Printf("ERROR: no dmheap context named '%s' found\n", DMDMA_TEST_HEAP_NAME);
+        return -1;
+    }
+
+    uint8_t *src = dmheap_malloc(heap, DMDMA_TEST_BYTES, DMDMA_TEST_HEAP_NAME);
+    uint8_t *dst = dmheap_malloc(heap, DMDMA_TEST_BYTES, DMDMA_TEST_HEAP_NAME);
     int result = -1;
 
     if (src == NULL || dst == NULL)
     {
-        Dmod_Printf("ERROR: out of memory\n");
+        Dmod_Printf("ERROR: out of memory (%u bytes from the '%s' heap)\n", DMDMA_TEST_BYTES, DMDMA_TEST_HEAP_NAME);
     }
     else
     {
@@ -136,8 +145,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    Dmod_Free(src);
-    Dmod_Free(dst);
+    dmheap_free(heap, src, true);
+    dmheap_free(heap, dst, true);
     Dmod_FileClose(handle);
     return result;
 }

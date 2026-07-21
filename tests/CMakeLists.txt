@@ -4,7 +4,10 @@ set(DMOD_STACK_SIZE         2048)
 
 # Two independent on-target diagnostics (Applications, not
 # dmod_add_test()/DMOD_TEST_STEP unit tests - both need argv and are meant
-# to be run manually from the shell):
+# to be run manually from the shell). Both allocate their transfer buffers
+# from the existing dmheap context named "dma" (dmheap_get_context_by_name(),
+# added in dmheap 0.6 - see dmdma_test_heap.h) - neither tool sets that
+# context up itself.
 
 # dmdma_test_port talks to dmdma_port.h directly (the same Built-in API
 # dmdma.c itself calls) - only dmdma_port needs to be bundled alongside it,
@@ -17,6 +20,10 @@ target_link_libraries(dmdma_test_port
     dmdma_port_if
 )
 
+dmod_link_modules(dmdma_test_port
+    dmheap@>=0.6
+)
+
 # dmdma_test_dev instead opens the real device node dmdevfs exposes once
 # dmdma is configured (e.g. /dev/dmdma1/0) and drives it purely through the
 # VFS file interface (open/ioctl/close) - exercising the real dmdrvi DIF
@@ -27,4 +34,8 @@ dmod_add_executable(dmdma_test_dev ${DMOD_MODULE_VERSION}
 
 target_include_directories(dmdma_test_dev PRIVATE
     ${CMAKE_SOURCE_DIR}/include
+)
+
+dmod_link_modules(dmdma_test_dev
+    dmheap@>=0.6
 )

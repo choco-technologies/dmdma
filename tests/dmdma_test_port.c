@@ -1,5 +1,6 @@
 #include "dmod.h"
 #include "dmdma_port.h"
+#include "dmdma_test_heap.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -16,10 +17,10 @@
  * alongside this module. See dmdma_test_dev.c for the counterpart that goes
  * through the actual device node instead.
  *
- * Reads up to DMDMA_TEST_MAX_BYTES bytes from the given file into a
- * heap-allocated buffer sized to what was actually read (never a fixed
- * multi-KB static buffer - this runs on embedded targets where RAM is
- * scarce) and uses DMA2 (the only controller able to do memory-to-memory
+ * Reads up to DMDMA_TEST_MAX_BYTES bytes from the given file into a buffer
+ * allocated from the existing dmheap context named "dma" (see
+ * dmdma_test_heap.h - this tool only fetches that context, it does not set
+ * one up) and uses DMA2 (the only controller able to do memory-to-memory
  * transfers - see dmdma_port_supports_memory_to_memory()) to copy them to a
  * second buffer, then verifies the copy is byte-for-byte identical.
  */
@@ -139,13 +140,21 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    uint8_t *src = Dmod_Malloc(size);
-    uint8_t *dst = Dmod_Malloc(size);
+    dmheap_context_t *heap = dmheap_get_context_by_name(DMDMA_TEST_HEAP_NAME);
+    if (heap == NULL)
+    {
+        Dmod_FileClose(file);
+        Dmod_Printf("ERROR: no dmheap context named '%s' found\n", DMDMA_TEST_HEAP_NAME);
+        return -1;
+    }
+
+    uint8_t *src = dmheap_malloc(heap, size, DMDMA_TEST_HEAP_NAME);
+    uint8_t *dst = dmheap_malloc(heap, size, DMDMA_TEST_HEAP_NAME);
     int result = -1;
 
     if (src == NULL || dst == NULL)
     {
-        Dmod_Printf("ERROR: out of memory (%u bytes)\n", (unsigned)size);
+        Dmod_Printf("ERROR: out of memory (%u bytes from the '%s' heap)\n", (unsigned)size, DMDMA_TEST_HEAP_NAME);
     }
     else
     {
@@ -161,7 +170,7 @@ int main(int argc, char *argv[])
     }
 
     Dmod_FileClose(file);
-    Dmod_Free(src);
-    Dmod_Free(dst);
+    dmheap_free(heap, src, true);
+    dmheap_free(heap, dst, true);
     return result;
 }
