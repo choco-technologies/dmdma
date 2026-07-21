@@ -25,6 +25,12 @@ readme=./README.md => ${destination}/${module}/README.md [origin=${repo_dir}/REA
 # Include directory with all headers (public header + generated <module>_defs.h)
 inc=./include => ${destination}/${module}/include [origin=${repo_dir}/include] [origin=${build_dir}/${module}_defs.h]
 
+# === Configuration Files ===
+# Configuration directory with MCU-specific configs - dmdevfs walks this at
+# boot to discover and create driver contexts, so without it dmdma is never
+# instantiated on a real board.
+configs=./configs => ${destination}/${module}/configs [origin=${repo_dir}/configs]
+
 # === License ===
 # License file
 license=./LICENSE => ${destination}/${module}/LICENSE [origin=${repo_dir}/LICENSE]

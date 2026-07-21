@@ -16,6 +16,12 @@ set(DMOD_STACK_SIZE         1024)
 # Path to the DMR file for this module
 set(DMOD_DMR_PATH           ${CMAKE_SOURCE_DIR}/dmdma_port.dmr)
 
+# stm32f4 and stm32f7 share the identical DMA controller IP block (confirmed
+# by dnx-rtos shipping one combined "STM32F4F7" driver for both), so the bulk
+# of the logic lives in stm32_common and per-family port.c stays thin
+# (lifecycle + IRQ vector forwarding only) - see src/port/stm32_common/.
+set(COMMON_SOURCES stm32_common/stm32_common.c)
+
 #
 #   dmod_add_library - create a library module
 #   it has the same signature as add_library
@@ -25,12 +31,12 @@ set(DMOD_DMR_PATH           ${CMAKE_SOURCE_DIR}/dmdma_port.dmr)
 dmod_add_library(${DMOD_MODULE_NAME} ${DMOD_MODULE_VERSION}
     # List of source files - can include C and C++ files
     ${DMOD_CPU_FAMILY}/port.c
+    ${COMMON_SOURCES}
 )
 
-# To depend on another module's headers, use:
-#   dmod_link_modules(${DMOD_MODULE_NAME}
-#       other_module@1.0
-#   )
+dmod_link_modules(${DMOD_MODULE_NAME}
+    dmosi
+)
 
 target_include_directories(${DMOD_MODULE_NAME} BEFORE PRIVATE
     ${CMAKE_SOURCE_DIR}/include

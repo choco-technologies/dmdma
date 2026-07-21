@@ -49,19 +49,34 @@ View documentation using `dmf-man dmdma`.
 This module ships two DMOD modules: the architecture-independent
 `dmdma` and `dmdma_port`, which contains the
 architecture-specific implementation. The active architecture is selected via
-`DMOD_CPU_FAMILY` (default: `stm32f7`):
+`DMOD_CPU_FAMILY` (default: `stm32f7`; `stm32f4` is also supported):
 
 ```bash
 cmake .. -DDMOD_CPU_FAMILY=stm32f7
+cmake .. -DDMOD_CPU_FAMILY=stm32f4
 ```
 
+stm32f4 and stm32f7 share the identical DMA controller IP block, so nearly
+all port logic lives in `src/port/stm32_common/` and each family's
+`src/port/<family>/port.c` is just a thin lifecycle + IRQ-forwarding shim.
 See [docs/port-implementation.md](docs/port-implementation.md) for how to add
 another architecture. Port-specific files:
 
 ```
-├── include/dmdma_port.h
+├── include/
+│   ├── dmdma_port.h
+│   └── port/
+│       ├── stm32_common_regs.h
+│       ├── stm32f4_regs.h
+│       └── stm32f7_regs.h
 ├── src/port/
 │   ├── CMakeLists.txt
+│   ├── stm32_common/
+│   │   ├── stm32_common.h
+│   │   └── stm32_common.c
+│   ├── stm32f4/
+│   │   ├── config.cmake
+│   │   └── port.c
 │   └── stm32f7/
 │       ├── config.cmake
 │       └── port.c
@@ -71,17 +86,19 @@ another architecture. Port-specific files:
 
 ```
 dmdma/
+├── configs/           # Board/MCU config files read by dmdevfs at boot
 ├── docs/              # Documentation (markdown format)
 ├── include/           # Public headers
-│   └── dmdma.h
+│   ├── dmdma.h
+│   ├── dmdma_port.h
+│   └── dmdma_types.h
 ├── src/
-│   └── dmdma.c
-├── tests/
-│   ├── CMakeLists.txt
-│   └── dmdma_test.c
+│   ├── dmdma.c
+│   └── port/          # See "Hardware Port" above
 ├── CMakeLists.txt
 ├── Makefile
 ├── dmdma.dmr
+├── dmdma_port.dmr
 └── manifest.dmm
 ```
 

@@ -30,7 +30,7 @@ set(DMOD_BUILD_TEMPLATES OFF CACHE BOOL "Build templates")
 FetchContent_MakeAvailable(dmod)
 
 project(dmdma VERSION ${DMOD_MODULE_VERSION}
-    DESCRIPTION "dmdma DMOD library module"
+    DESCRIPTION "DMOD DMA Driver Module"
     LANGUAGES C CXX)
 
 set(DMOD_DIR ${dmod_SOURCE_DIR} CACHE PATH "DMOD source directory")
@@ -76,9 +76,10 @@ target_include_directories(${DMOD_MODULE_NAME}_if INTERFACE
 )
 
 # To depend on another module's headers, use:
-#   dmod_link_modules(${DMOD_MODULE_NAME}
-#       other_module@1.0
-#   )
+dmod_link_modules(${DMOD_MODULE_NAME}
+    dmdrvi
+    dmini
+)
 
 add_subdirectory(src/port)
 target_link_libraries(${DMOD_MODULE_NAME} ${DMOD_MODULE_NAME}_port_if)

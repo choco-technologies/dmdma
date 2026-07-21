@@ -3,25 +3,25 @@
 #include "dmod.h"
 #include "../stm32_common/stm32_common.h"
 #include "port/stm32_common_regs.h"
-#include "port/stm32f7_regs.h"
+#include "port/stm32f4_regs.h"
 
 /* ---- DMOD lifecycle ---- */
 
 int dmod_init(const Dmod_Config_t *Config)
 {
-    Dmod_Printf("dmdma port module initialized (stm32f7)\n");
+    Dmod_Printf("dmdma port module initialized (stm32f4)\n");
     return 0;
 }
 
 int dmod_deinit(void)
 {
-    Dmod_Printf("dmdma port module deinitialized (stm32f7)\n");
+    Dmod_Printf("dmdma port module deinitialized (stm32f4)\n");
     return 0;
 }
 
 /* ---- ISR handlers ----
  *
- * All register-level logic lives in stm32_common.c, shared with STM32F4
+ * All register-level logic lives in stm32_common.c, shared with STM32F7
  * (identical DMA controller IP block); only the NVIC IRQ numbers are
  * declared per family, forwarding to stm32_dma_stream_irq(). */
 
