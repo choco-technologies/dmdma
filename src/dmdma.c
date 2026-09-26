@@ -149,7 +149,7 @@ int dmod_deinit(void)
 
 /* ---- DMDRVI DIF implementation ---- */
 
-dmod_dmdrvi_dif_api_declaration(1.0, dmdma, dmdrvi_context_t, _create,
+dmod_dmdrvi_dif_api_declaration(2.0, dmdma, dmdrvi_context_t, _create,
     ( dmini_context_t config, dmdrvi_dev_num_t* dev_num ))
 {
     if (dev_num == NULL)
@@ -224,7 +224,7 @@ dmod_dmdrvi_dif_api_declaration(1.0, dmdma, dmdrvi_context_t, _create,
     return context;
 }
 
-dmod_dmdrvi_dif_api_declaration(1.0, dmdma, void, _free, ( dmdrvi_context_t context ))
+dmod_dmdrvi_dif_api_declaration(2.0, dmdma, void, _free, ( dmdrvi_context_t context ))
 {
     if (!is_valid_context(context))
     {
@@ -245,7 +245,7 @@ dmod_dmdrvi_dif_api_declaration(1.0, dmdma, void, _free, ( dmdrvi_context_t cont
     Dmod_Free(context);
 }
 
-dmod_dmdrvi_dif_api_declaration(1.0, dmdma, void*, _open,
+dmod_dmdrvi_dif_api_declaration(2.0, dmdma, void*, _open,
     ( dmdrvi_context_t context, int flags, const dmdrvi_dev_num_t* dev_num ))
 {
     (void)flags;
@@ -280,7 +280,7 @@ dmod_dmdrvi_dif_api_declaration(1.0, dmdma, void*, _open,
     return slot;
 }
 
-dmod_dmdrvi_dif_api_declaration(1.0, dmdma, void, _close, ( dmdrvi_context_t context, void* handle ))
+dmod_dmdrvi_dif_api_declaration(2.0, dmdma, void, _close, ( dmdrvi_context_t context, void* handle ))
 {
     dmdma_stream_slot_t *slot = slot_from_handle(context, handle);
     if (slot == NULL)
@@ -294,23 +294,43 @@ dmod_dmdrvi_dif_api_declaration(1.0, dmdma, void, _close, ( dmdrvi_context_t con
     slot->handler  = NULL;
 }
 
-dmod_dmdrvi_dif_api_declaration(1.0, dmdma, size_t, _read,
-    ( dmdrvi_context_t context, void* handle, void* buffer, size_t size, uint32_t offset ))
+dmod_dmdrvi_dif_api_declaration(2.0, dmdma, dmdrvi_ssize_t, _read,
+    ( dmdrvi_context_t context, void* handle, void* buffer, size_t size, dmdrvi_offset_t offset ))
 {
     /* Not a byte-stream device - a stream is driven entirely through ioctl()
      * (see dmdma_ioctl_cmd_t in dmdma_types.h). */
-    (void)context; (void)handle; (void)buffer; (void)size; (void)offset;
+    (void)context; (void)handle; (void)buffer;
+
+    if (offset < 0)
+    {
+        return -EINVAL;
+    }
+    if (size > (size_t)INT64_MAX)
+    {
+        return -EOVERFLOW;
+    }
+
     return 0;
 }
 
-dmod_dmdrvi_dif_api_declaration(1.0, dmdma, size_t, _write,
-    ( dmdrvi_context_t context, void* handle, const void* buffer, size_t size, uint32_t offset ))
+dmod_dmdrvi_dif_api_declaration(2.0, dmdma, dmdrvi_ssize_t, _write,
+    ( dmdrvi_context_t context, void* handle, const void* buffer, size_t size, dmdrvi_offset_t offset ))
 {
-    (void)context; (void)handle; (void)buffer; (void)size; (void)offset;
+    (void)context; (void)handle; (void)buffer;
+
+    if (offset < 0)
+    {
+        return -EINVAL;
+    }
+    if (size > (size_t)INT64_MAX)
+    {
+        return -EOVERFLOW;
+    }
+
     return 0;
 }
 
-dmod_dmdrvi_dif_api_declaration(1.0, dmdma, int, _ioctl,
+dmod_dmdrvi_dif_api_declaration(2.0, dmdma, int, _ioctl,
     ( dmdrvi_context_t context, void* handle, int command, void* arg ))
 {
     dmdma_stream_slot_t *slot = slot_from_handle(context, handle);
@@ -371,7 +391,7 @@ dmod_dmdrvi_dif_api_declaration(1.0, dmdma, int, _ioctl,
     }
 }
 
-dmod_dmdrvi_dif_api_declaration(1.0, dmdma, int, _flush, ( dmdrvi_context_t context, void* handle ))
+dmod_dmdrvi_dif_api_declaration(2.0, dmdma, int, _flush, ( dmdrvi_context_t context, void* handle ))
 {
     dmdma_stream_slot_t *slot = slot_from_handle(context, handle);
     if (slot == NULL)
@@ -389,7 +409,7 @@ dmod_dmdrvi_dif_api_declaration(1.0, dmdma, int, _flush, ( dmdrvi_context_t cont
     return (timeout > 0) ? 0 : -ETIMEDOUT;
 }
 
-dmod_dmdrvi_dif_api_declaration(1.0, dmdma, int, _stat,
+dmod_dmdrvi_dif_api_declaration(2.0, dmdma, int, _stat,
     ( dmdrvi_context_t context, const char* path, dmdrvi_stat_t* stat ))
 {
     (void)path;
