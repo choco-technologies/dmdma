@@ -2,12 +2,14 @@ set(DMOD_MODULE_VERSION     ${PROJECT_VERSION})
 set(DMOD_AUTHOR_NAME        "Patryk Kubiak")
 set(DMOD_STACK_SIZE         2048)
 
-# Two independent on-target diagnostics (Applications, not
-# dmod_add_test()/DMOD_TEST_STEP unit tests - both need argv and are meant
-# to be run manually from the shell). Both allocate their transfer buffers
-# from the existing dmheap context named "dma" (dmheap_get_context_by_name(),
-# added in dmheap 0.6 - see dmdma_test_heap.h) - neither tool sets that
-# context up itself.
+# Three independent on-target diagnostics (Applications, not
+# dmod_add_test()/DMOD_TEST_STEP unit tests - all need argv and are meant
+# to be run manually from the shell). dmdma_test_port/_dev allocate their
+# transfer buffers from the existing dmheap context named "dma"
+# (dmheap_get_context_by_name(), added in dmheap 0.6 - see
+# dmdma_test_heap.h) - neither sets that context up itself, so both require
+# a board whose linker script actually carves out a "dma" MEMORY region
+# (see linker/common.ld in dmod-boot) - not every board does.
 
 # dmdma_test_port talks to dmdma_port.h directly (the same Built-in API
 # dmdma.c itself calls) - only dmdma_port needs to be bundled alongside it,
@@ -38,4 +40,22 @@ target_include_directories(dmdma_test_dev PRIVATE
 
 dmod_link_modules(dmdma_test_dev
     dmheap@>=0.6
+)
+
+# dmdma_test_lease exercises the dmdma_lease.h DIF the way a peripheral
+# driver (dmuart, dmspi, dmsdio, ...) would: resolved by module name at
+# runtime (Dmod_GetModuleContext("dmdma") + Dmod_GetDifFunction()), not
+# through a device node. It links against dmdma_if (the same interface
+# target dmdma_test_port uses for dmdma_port_if) purely to get dmdma.h and
+# the generated dmdma_defs.h on its include path at compile time - it does
+# not call into dmdma directly, only through the DIF lookup at runtime. Its
+# transfer buffers are plain static arrays (not the "dma" dmheap context
+# dmdma_test_port/_dev need) so it runs on any board regardless of whether
+# one has been carved out.
+dmod_add_executable(dmdma_test_lease ${DMOD_MODULE_VERSION}
+    dmdma_test_lease.c
+)
+
+target_link_libraries(dmdma_test_lease
+    dmdma_if
 )

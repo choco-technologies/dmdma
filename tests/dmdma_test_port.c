@@ -63,6 +63,7 @@ static int run_transfer_test(const uint8_t *src, uint8_t *dst, size_t bytes_read
     transfer.circular              = false;
     transfer.priority              = dmdma_priority_medium;
     transfer.element_count         = bytes_read;
+    transfer.timeout_ms            = 0; /* no watchdog for this smoke test */
 
     Dmod_Printf("Starting memory-to-memory transfer of %u byte(s)...\n", (unsigned)bytes_read);
     if (dmdma_port_stream_start(DMDMA_TEST_CONTROLLER, DMDMA_TEST_STREAM, &transfer) != 0)

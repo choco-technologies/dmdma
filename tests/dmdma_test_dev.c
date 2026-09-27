@@ -38,6 +38,7 @@ static int run_transfer_test(void *handle, const uint8_t *src, uint8_t *dst)
     transfer.circular              = false;
     transfer.priority              = dmdma_priority_medium;
     transfer.element_count         = DMDMA_TEST_BYTES;
+    transfer.timeout_ms            = 0; /* no watchdog for this smoke test */
 
     Dmod_Printf("Starting memory-to-memory transfer of %u byte(s) via ioctl()...\n", DMDMA_TEST_BYTES);
     if (Dmod_Ioctl(handle, dmdma_ioctl_cmd_start_transfer, &transfer) != 0)

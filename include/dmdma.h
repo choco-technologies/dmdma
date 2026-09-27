@@ -3,6 +3,7 @@
 
 #include "dmdma_defs.h"
 #include "dmdma_types.h"
+#include "dmdma_lease.h"
 
 /**
  * @brief DMA driver configuration structure
