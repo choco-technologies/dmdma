@@ -19,17 +19,17 @@ extern "C" {
  * dmdma.c - a stream already open as a device node cannot also be leased,
  * and vice versa (see "Streams are devices, not a pool" in docs/README.md).
  *
- * This is a DIF, like dmdrvi itself - dmdma is an optional dependency for a
- * peripheral driver (it can always fall back to polled/interrupt-only I/O),
- * so a consumer resolves it by name and checks for NULL at every step:
- *
- *   Dmod_Context_t* dma = Dmod_GetModuleContext("dmdma");
- *   dmod_dmdma_lease_acquire_t lease_acquire =
- *       dma ? (dmod_dmdma_lease_acquire_t)Dmod_GetDifFunction(dma, dmod_dmdma_lease_acquire_sig) : NULL;
- *   dmdma_lease_t lease = lease_acquire ? lease_acquire(controller, stream) : NULL;
- *
- * (see dmdevfs.c's or dmvfs.c's own DIF consumer code for the established
- * pattern this mirrors exactly).
+ * This is a plain Module API (dmod's README, "Module API" section) - dmdma
+ * is the one and only implementation of it, not a plugin-style interface
+ * with several interchangeable backends (that's what DIF is for, e.g.
+ * dmfsi with dmramfs/dmffs simultaneously). A consumer just includes this
+ * header and calls the functions directly, e.g. dmdma_lease_acquire(...) -
+ * no Dmod_GetModuleContext()/Dmod_GetDifFunction() lookup involved, same as
+ * calling dmdma_port_stream_start() from within dmdma.c itself. Whether a
+ * given board actually needs DMA is a *build-time* choice (whether "dmdma"
+ * is declared as a dependency and bundled into that firmware image at
+ * all - see dmod_link_modules() in the consumer's CMakeLists.txt), not a
+ * runtime NULL-check.
  */
 
 /**
@@ -58,7 +58,7 @@ typedef void (*dmdma_lease_callback_t)(dmdma_lease_t lease, dmdma_event_t event,
  * Fails (returns NULL) if controller/stream is out of range for this build,
  * or the stream is already reserved through any API combination.
  */
-dmod_dmdma_dif(1.0, dmdma_lease_t, _lease_acquire, ( dmdma_controller_t controller, dmdma_stream_t stream ) );
+dmod_dmdma_api(1.0, dmdma_lease_t, _lease_acquire, ( dmdma_controller_t controller, dmdma_stream_t stream ) );
 
 /**
  * Release the lease: aborts any transfer in flight, disables the interrupt
@@ -68,7 +68,7 @@ dmod_dmdma_dif(1.0, dmdma_lease_t, _lease_acquire, ( dmdma_controller_t controll
  * consumer module goes away, so nothing else guarantees a stale callback
  * can never be invoked after that point.
  */
-dmod_dmdma_dif(1.0, void, _lease_release, ( dmdma_lease_t lease ) );
+dmod_dmdma_api(1.0, void, _lease_release, ( dmdma_lease_t lease ) );
 
 /* --- Transfer control ---
  *
@@ -77,7 +77,7 @@ dmod_dmdma_dif(1.0, void, _lease_release, ( dmdma_lease_t lease ) );
  * request-line/direction consistency, address alignment, and element count
  * are all checked before anything touches the port.
  */
-dmod_dmdma_dif(1.0, int,    _lease_start,         ( dmdma_lease_t lease, const dmdma_transfer_config_t *config ) );
+dmod_dmdma_api(1.0, int,    _lease_start,         ( dmdma_lease_t lease, const dmdma_transfer_config_t *config ) );
 
 /**
  * Abort whatever transfer is in flight; safe to call when idle. Fires the
@@ -86,15 +86,15 @@ dmod_dmdma_dif(1.0, int,    _lease_start,         ( dmdma_lease_t lease, const d
  * (or already-finished) stream is a no-op and does not fire a spurious
  * event on top of whatever dmdma_event_complete already fired for it.
  */
-dmod_dmdma_dif(1.0, void,   _lease_abort,         ( dmdma_lease_t lease ) );
-dmod_dmdma_dif(1.0, bool,   _lease_is_busy,       ( dmdma_lease_t lease ) );
-dmod_dmdma_dif(1.0, size_t, _lease_get_remaining, ( dmdma_lease_t lease ) );
+dmod_dmdma_api(1.0, void,   _lease_abort,         ( dmdma_lease_t lease ) );
+dmod_dmdma_api(1.0, bool,   _lease_is_busy,       ( dmdma_lease_t lease ) );
+dmod_dmdma_api(1.0, size_t, _lease_get_remaining, ( dmdma_lease_t lease ) );
 
 /**
  * Register (callback != NULL) or remove (callback == NULL) this lease's
  * event callback.
  */
-dmod_dmdma_dif(1.0, int, _lease_set_callback, ( dmdma_lease_t lease, dmdma_lease_callback_t callback, void *user_ptr ) );
+dmod_dmdma_api(1.0, int, _lease_set_callback, ( dmdma_lease_t lease, dmdma_lease_callback_t callback, void *user_ptr ) );
 
 #ifdef __cplusplus
 }

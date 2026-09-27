@@ -42,16 +42,19 @@ dmod_link_modules(dmdma_test_dev
     dmheap@>=0.6
 )
 
-# dmdma_test_lease exercises the dmdma_lease.h DIF the way a peripheral
-# driver (dmuart, dmspi, dmsdio, ...) would: resolved by module name at
-# runtime (Dmod_GetModuleContext("dmdma") + Dmod_GetDifFunction()), not
-# through a device node. It links against dmdma_if (the same interface
-# target dmdma_test_port uses for dmdma_port_if) purely to get dmdma.h and
-# the generated dmdma_defs.h on its include path at compile time - it does
-# not call into dmdma directly, only through the DIF lookup at runtime. Its
-# transfer buffers are plain static arrays (not the "dma" dmheap context
-# dmdma_test_port/_dev need) so it runs on any board regardless of whether
-# one has been carved out.
+# dmdma_test_lease exercises the dmdma_lease.h Module API the way a
+# peripheral driver (dmuart, dmspi, dmsdio, ...) would: dmdma_lease_*()
+# called directly, patched by the loader against dmdma's own registration
+# the same way dmdma_port_stream_start() is - no device node, no runtime
+# lookup. It links against dmdma_if (the same interface target
+# dmdma_test_port uses for dmdma_port_if) to get dmdma.h/dmdma_defs.h on its
+# include path - the runtime dependency on dmdma itself is picked up
+# automatically (todmd derives it straight from the "@dmdma:" signatures
+# dmdma_lease.h's dmod_dmdma_api() calls embed into this binary's own
+# .dmod.outputs, the same way it derives dmdma's own dependency on
+# dmdma_port). Its transfer buffers are plain static arrays (not the "dma"
+# dmheap context dmdma_test_port/_dev need) so it runs on any board
+# regardless of whether one has been carved out.
 dmod_add_executable(dmdma_test_lease ${DMOD_MODULE_VERSION}
     dmdma_test_lease.c
 )

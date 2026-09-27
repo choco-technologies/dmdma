@@ -696,25 +696,13 @@ dmod_dmdrvi_dif_api_declaration(2.0, dmdma, int, _stat,
 
 /* ---- DMA lease API (see dmdma_lease.h) ----
  *
- * dmod_dmdma_dif_api_declaration() only emits a real .dmod.inputs
- * registration when the *implementing* module differs from the module that
- * *defines* the DIF family - see dmdma_defs.h's `#ifdef DMOD_dmdma` branch,
- * which assumes a DIF is always implemented by some other module and
- * degrades to a plain, unregistered function declaration otherwise (the
- * lookup-free "you already know it's your own function" case that macro
- * was written for). Here dmdma implements its *own* "dmdma" DIF family, so
- * that assumption doesn't hold and every function below needs its
- * registration written out by hand - otherwise Dmod_GetDifFunction() can
- * never find these at runtime, no matter how correct the function bodies
- * are (confirmed on real hardware: dmdma loads fine, but every consumer's
- * Dmod_GetDifFunction() call returns NULL until this macro is used instead
- * of the plain one above). */
-#define DMDMA_DIF_API_DECLARATION(VERSION, RET, NAME, PARAMS)                     \
-    RET DMOD_MAKE_DIF_API_FUNCTION_NAME(dmdma, dmdma, NAME) PARAMS;               \
-    _DMOD_DIF_API_REGISTRATION(dmdma, dmdma, DMOD_MAKE_VERSION(VERSION,0.1), NAME) \
-    RET DMOD_MAKE_DIF_API_FUNCTION_NAME(dmdma, dmdma, NAME) PARAMS
+ * A plain Module API (dmod is the one and only implementation of it), so
+ * these are ordinary dmod_dmdma_api_declaration() definitions - registered
+ * for direct calling by any other module the moment it includes
+ * dmdma_lease.h and links against dmdma, no DIF-style runtime lookup
+ * involved. */
 
-DMDMA_DIF_API_DECLARATION(1.0, dmdma_lease_t, _lease_acquire,
+dmod_dmdma_api_declaration(1.0, dmdma_lease_t, _lease_acquire,
     ( dmdma_controller_t controller, dmdma_stream_t stream ))
 {
     if (controller >= DMDMA_MAX_CONTROLLERS)
@@ -749,7 +737,7 @@ DMDMA_DIF_API_DECLARATION(1.0, dmdma_lease_t, _lease_acquire,
     return (dmdma_lease_t)slot;
 }
 
-DMDMA_DIF_API_DECLARATION(1.0, void, _lease_release, ( dmdma_lease_t lease ))
+dmod_dmdma_api_declaration(1.0, void, _lease_release, ( dmdma_lease_t lease ))
 {
     dmdma_stream_slot_t *slot = slot_from_lease(lease);
     if (slot == NULL)
@@ -776,7 +764,7 @@ DMDMA_DIF_API_DECLARATION(1.0, void, _lease_release, ( dmdma_lease_t lease ))
     slot->cb.lease.user_ptr = NULL;
 }
 
-DMDMA_DIF_API_DECLARATION(1.0, int, _lease_start,
+dmod_dmdma_api_declaration(1.0, int, _lease_start,
     ( dmdma_lease_t lease, const dmdma_transfer_config_t *config ))
 {
     dmdma_stream_slot_t *slot = slot_from_lease(lease);
@@ -804,7 +792,7 @@ DMDMA_DIF_API_DECLARATION(1.0, int, _lease_start,
     return rc;
 }
 
-DMDMA_DIF_API_DECLARATION(1.0, void, _lease_abort, ( dmdma_lease_t lease ))
+dmod_dmdma_api_declaration(1.0, void, _lease_abort, ( dmdma_lease_t lease ))
 {
     dmdma_stream_slot_t *slot = slot_from_lease(lease);
     if (slot == NULL)
@@ -831,7 +819,7 @@ DMDMA_DIF_API_DECLARATION(1.0, void, _lease_abort, ( dmdma_lease_t lease ))
     }
 }
 
-DMDMA_DIF_API_DECLARATION(1.0, bool, _lease_is_busy, ( dmdma_lease_t lease ))
+dmod_dmdma_api_declaration(1.0, bool, _lease_is_busy, ( dmdma_lease_t lease ))
 {
     dmdma_stream_slot_t *slot = slot_from_lease(lease);
     if (slot == NULL)
@@ -843,7 +831,7 @@ DMDMA_DIF_API_DECLARATION(1.0, bool, _lease_is_busy, ( dmdma_lease_t lease ))
     return dmdma_port_stream_is_busy(context->config.controller, slot->stream);
 }
 
-DMDMA_DIF_API_DECLARATION(1.0, size_t, _lease_get_remaining, ( dmdma_lease_t lease ))
+dmod_dmdma_api_declaration(1.0, size_t, _lease_get_remaining, ( dmdma_lease_t lease ))
 {
     dmdma_stream_slot_t *slot = slot_from_lease(lease);
     if (slot == NULL)
@@ -855,7 +843,7 @@ DMDMA_DIF_API_DECLARATION(1.0, size_t, _lease_get_remaining, ( dmdma_lease_t lea
     return dmdma_port_stream_get_remaining(context->config.controller, slot->stream);
 }
 
-DMDMA_DIF_API_DECLARATION(1.0, int, _lease_set_callback,
+dmod_dmdma_api_declaration(1.0, int, _lease_set_callback,
     ( dmdma_lease_t lease, dmdma_lease_callback_t callback, void *user_ptr ))
 {
     dmdma_stream_slot_t *slot = slot_from_lease(lease);

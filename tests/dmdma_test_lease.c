@@ -1,8 +1,3 @@
-/* Needed so this translation unit gets real storage for the DIF signature
- * string constants (dmod_dmdma_lease_*_sig) it references below, not just
- * an extern declaration - see dmdevfs.c/dmvfs.c for the same pattern on
- * every other DIF consumer in the ecosystem. */
-#define ENABLE_DIF_REGISTRATIONS ON
 #include "dmod.h"
 #include "dmdma.h"
 #include <stdint.h>
@@ -11,10 +6,9 @@
 /**
  * @brief dmdma_test_lease - on-target smoke test for the DMA lease API
  *        (dmdma_lease.h), exercised exactly the way a peripheral driver
- *        (dmuart, dmspi, dmsdio, ...) is meant to use it: by resolving
- *        "dmdma" as a DIF at runtime, the same way dmdevfs.c/dmvfs.c resolve
- *        dmdrvi/dmfsi - not by linking against dmdma or going through a
- *        device node.
+ *        (dmuart, dmspi, dmsdio, ...) is meant to use it: dmdma_lease_*()
+ *        called directly, like any other Module API function (see
+ *        dmdma_lease.h) - no runtime lookup involved.
  *
  * Usage:
  *   dmdma_test_lease <controller> <stream>
@@ -23,11 +17,11 @@
  *
  * Unlike dmdma_test_dev.c (device node / dmdrvi) and dmdma_test_port.c (raw
  * dmdma_port.h), this tool never touches dmdevfs, dmdrvi, or dmdma_port -
- * only "dmdma" itself needs to be loaded. It also doesn't need dmdma_test_dev/
- * _test_port's shared "dma" dmheap context - a plain static buffer is a
- * perfectly valid memory-to-memory DMA endpoint, and not every board carves
- * out a dedicated DMA heap region (see linker/common.ld's optional "dma"
- * MEMORY region).
+ * it links directly against dmdma (see tests/CMakeLists.txt). It also
+ * doesn't need dmdma_test_dev/_test_port's shared "dma" dmheap context - a
+ * plain static buffer is a perfectly valid memory-to-memory DMA endpoint,
+ * and not every board carves out a dedicated DMA heap region (see
+ * linker/common.ld's optional "dma" MEMORY region).
  */
 
 /* Large enough that a circular transfer's wrap period is milliseconds, not
@@ -58,47 +52,6 @@ static void on_lease_event(dmdma_lease_t lease, dmdma_event_t event, void *user_
     }
 }
 
-typedef struct
-{
-    dmod_dmdma_lease_acquire_t       acquire;
-    dmod_dmdma_lease_release_t       release;
-    dmod_dmdma_lease_start_t         start;
-    dmod_dmdma_lease_abort_t         abort;
-    dmod_dmdma_lease_is_busy_t       is_busy;
-    dmod_dmdma_lease_get_remaining_t get_remaining;
-    dmod_dmdma_lease_set_callback_t  set_callback;
-} lease_api_t;
-
-/* Resolves every lease function by name, exactly the way a real consumer
- * must - "dmdma" is an optional dependency, so every step here can fail if
- * it isn't loaded, without that being a bug in either module. */
-static int resolve_lease_api(lease_api_t *api)
-{
-    Dmod_Context_t *dma = Dmod_GetModuleContext("dmdma");
-    if (dma == NULL)
-    {
-        Dmod_Printf("ERROR: 'dmdma' module is not loaded\n");
-        return -1;
-    }
-
-    api->acquire       = (dmod_dmdma_lease_acquire_t)Dmod_GetDifFunction(dma, dmod_dmdma_lease_acquire_sig);
-    api->release       = (dmod_dmdma_lease_release_t)Dmod_GetDifFunction(dma, dmod_dmdma_lease_release_sig);
-    api->start         = (dmod_dmdma_lease_start_t)Dmod_GetDifFunction(dma, dmod_dmdma_lease_start_sig);
-    api->abort         = (dmod_dmdma_lease_abort_t)Dmod_GetDifFunction(dma, dmod_dmdma_lease_abort_sig);
-    api->is_busy       = (dmod_dmdma_lease_is_busy_t)Dmod_GetDifFunction(dma, dmod_dmdma_lease_is_busy_sig);
-    api->get_remaining = (dmod_dmdma_lease_get_remaining_t)Dmod_GetDifFunction(dma, dmod_dmdma_lease_get_remaining_sig);
-    api->set_callback  = (dmod_dmdma_lease_set_callback_t)Dmod_GetDifFunction(dma, dmod_dmdma_lease_set_callback_sig);
-
-    if (api->acquire == NULL || api->release == NULL || api->start == NULL || api->abort == NULL ||
-        api->is_busy == NULL || api->get_remaining == NULL || api->set_callback == NULL)
-    {
-        Dmod_Printf("ERROR: 'dmdma' does not implement the lease DIF\n");
-        return -1;
-    }
-
-    return 0;
-}
-
 /* This tool targets DMOD_USE_STDLIB=OFF builds (see cortex-m7's
  * tools-cfg.cmake) - no atoi()/strtoul(), so argv is parsed by hand. */
 static uint32_t parse_uint(const char *s)
@@ -112,11 +65,11 @@ static uint32_t parse_uint(const char *s)
     return value;
 }
 
-static bool wait_until_idle(const lease_api_t *api, dmdma_lease_t lease)
+static bool wait_until_idle(dmdma_lease_t lease)
 {
     for (uint32_t i = 0; i < DMDMA_TEST_BUSY_POLL_ITERATIONS; i++)
     {
-        if (!api->is_busy(lease))
+        if (!dmdma_lease_is_busy(lease))
         {
             return true;
         }
@@ -141,12 +94,6 @@ int main(int argc, char *argv[])
     dmdma_controller_t controller = (dmdma_controller_t)parse_uint(argv[1]);
     dmdma_stream_t stream = (dmdma_stream_t)parse_uint(argv[2]);
 
-    lease_api_t api;
-    if (resolve_lease_api(&api) != 0)
-    {
-        return -1;
-    }
-
     uint8_t *src = s_src;
     uint8_t *dst = s_dst;
     dmdma_lease_t lease = NULL;
@@ -160,7 +107,7 @@ int main(int argc, char *argv[])
 
     /* --- 1. Acquire --- */
 
-    lease = api.acquire(controller, stream);
+    lease = dmdma_lease_acquire(controller, stream);
     if (lease == NULL)
     {
         Dmod_Printf("ERROR: could not acquire controller %u stream %u\n", (unsigned)controller, (unsigned)stream);
@@ -171,12 +118,12 @@ int main(int argc, char *argv[])
     /* --- 2. The same stream cannot be acquired twice, through any API combination --- */
 
     {
-        dmdma_lease_t second = api.acquire(controller, stream);
+        dmdma_lease_t second = dmdma_lease_acquire(controller, stream);
         if (second != NULL)
         {
             Dmod_Printf("FAIL: double-acquire of controller %u stream %u unexpectedly succeeded\n",
                         (unsigned)controller, (unsigned)stream);
-            api.release(second);
+            dmdma_lease_release(second);
             goto cleanup_lease;
         }
         Dmod_Printf("PASS: double-acquire correctly rejected\n");
@@ -188,8 +135,8 @@ int main(int argc, char *argv[])
         int idle_marker = 0xAAAA;
         s_expected_user_ptr = &idle_marker;
         s_callback_count = 0;
-        api.set_callback(lease, on_lease_event, &idle_marker);
-        api.abort(lease);
+        dmdma_lease_set_callback(lease, on_lease_event, &idle_marker);
+        dmdma_lease_abort(lease);
         if (s_callback_count != 0)
         {
             Dmod_Printf("FAIL: aborting an idle stream fired %d callback(s), expected 0\n", s_callback_count);
@@ -205,7 +152,7 @@ int main(int argc, char *argv[])
         s_expected_user_ptr = &user_marker;
         s_callback_count = 0;
         s_user_ptr_mismatch = false;
-        api.set_callback(lease, on_lease_event, &user_marker);
+        dmdma_lease_set_callback(lease, on_lease_event, &user_marker);
 
         dmdma_transfer_config_t transfer;
         transfer.direction             = dmdma_direction_memory_to_memory;
@@ -222,19 +169,19 @@ int main(int argc, char *argv[])
         transfer.timeout_ms            = 0; /* no watchdog for this run */
 
         Dmod_Printf("Starting memory-to-memory transfer of %u byte(s) via the lease API...\n", DMDMA_TEST_BYTES);
-        if (api.start(lease, &transfer) != 0)
+        if (dmdma_lease_start(lease, &transfer) != 0)
         {
             Dmod_Printf("ERROR: dmdma_lease_start() failed\n");
             goto cleanup_lease;
         }
 
-        if (!wait_until_idle(&api, lease))
+        if (!wait_until_idle(lease))
         {
             Dmod_Printf("FAIL: transfer did not complete (timed out polling is_busy)\n");
             goto cleanup_lease;
         }
 
-        size_t remaining = api.get_remaining(lease);
+        size_t remaining = dmdma_lease_get_remaining(lease);
         if (remaining != 0)
         {
             Dmod_Printf("FAIL: %u byte(s) reported remaining after completion\n", (unsigned)remaining);
@@ -267,7 +214,7 @@ int main(int argc, char *argv[])
 
         dmdma_transfer_config_t bad = transfer;
         bad.element_count = 0;
-        if (api.start(lease, &bad) == 0)
+        if (dmdma_lease_start(lease, &bad) == 0)
         {
             Dmod_Printf("FAIL: zero-length transfer was accepted\n");
             goto cleanup_lease;
@@ -275,7 +222,7 @@ int main(int argc, char *argv[])
 
         bad = transfer;
         bad.request = 1; /* mem-to-mem must not carry a request line */
-        if (api.start(lease, &bad) == 0)
+        if (dmdma_lease_start(lease, &bad) == 0)
         {
             Dmod_Printf("FAIL: mem-to-mem transfer with a request line was accepted\n");
             goto cleanup_lease;
@@ -290,12 +237,12 @@ int main(int argc, char *argv[])
          * finish on its own" and "did our abort() call catch it in flight".
          */
         transfer.circular = true;
-        if (api.start(lease, &transfer) != 0)
+        if (dmdma_lease_start(lease, &transfer) != 0)
         {
             Dmod_Printf("ERROR: dmdma_lease_start() failed on the abort run\n");
             goto cleanup_lease;
         }
-        if (!api.is_busy(lease))
+        if (!dmdma_lease_is_busy(lease))
         {
             Dmod_Printf("FAIL: circular transfer was not busy right after starting\n");
             goto cleanup_lease;
@@ -303,9 +250,9 @@ int main(int argc, char *argv[])
 
         s_callback_count = 0;
         s_last_event = (dmdma_event_t)0;
-        api.abort(lease);
+        dmdma_lease_abort(lease);
 
-        if (api.is_busy(lease))
+        if (dmdma_lease_is_busy(lease))
         {
             Dmod_Printf("FAIL: stream still busy right after dmdma_lease_abort()\n");
             goto cleanup_lease;
@@ -325,7 +272,7 @@ int main(int argc, char *argv[])
          * armed by dmdma_lease_start() firing.
          */
         transfer.timeout_ms = DMDMA_TEST_TIMEOUT_MS;
-        if (api.start(lease, &transfer) != 0)
+        if (dmdma_lease_start(lease, &transfer) != 0)
         {
             Dmod_Printf("ERROR: dmdma_lease_start() failed on the timeout run\n");
             goto cleanup_lease;
@@ -335,7 +282,7 @@ int main(int argc, char *argv[])
         s_last_event = (dmdma_event_t)0;
         Dmod_ThreadSleep(DMDMA_TEST_TIMEOUT_MS + DMDMA_TEST_TIMEOUT_MARGIN_MS);
 
-        if (api.is_busy(lease))
+        if (dmdma_lease_is_busy(lease))
         {
             Dmod_Printf("FAIL: stream still busy %u ms after its %u ms watchdog should have fired\n",
                         DMDMA_TEST_TIMEOUT_MS + DMDMA_TEST_TIMEOUT_MARGIN_MS, DMDMA_TEST_TIMEOUT_MS);
@@ -352,8 +299,8 @@ int main(int argc, char *argv[])
 
     /* --- 8. Release must return the stream to the free pool cleanly --- */
 
-    api.release(lease);
-    lease = api.acquire(controller, stream);
+    dmdma_lease_release(lease);
+    lease = dmdma_lease_acquire(controller, stream);
     if (lease == NULL)
     {
         Dmod_Printf("FAIL: could not re-acquire controller %u stream %u after release\n",
@@ -369,7 +316,7 @@ int main(int argc, char *argv[])
 cleanup_lease:
     if (lease != NULL)
     {
-        api.release(lease);
+        dmdma_lease_release(lease);
     }
 cleanup:
     return result;
