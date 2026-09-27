@@ -86,6 +86,12 @@ typedef struct
     bool                circular;              /**< Wrap back to the start instead of stopping at element_count */
     dmdma_priority_t    priority;              /**< Arbitration priority against other active streams */
     size_t              element_count;         /**< Number of elements (not bytes) to transfer */
+    uint32_t            timeout_ms;            /**< Abort the transfer and fire dmdma_event_timeout if it hasn't
+                                                 *   reached dmdma_event_complete within this many milliseconds of
+                                                 *   being started (dmosi_timer-backed, see dmdma.c); 0 = no
+                                                 *   watchdog, wait indefinitely. For a circular transfer this is a
+                                                 *   total-run-time cap (dmdma_event_half_complete wrap points do
+                                                 *   not reset it) rather than a per-element deadline. */
 } dmdma_transfer_config_t;
 
 /*
@@ -110,6 +116,11 @@ typedef enum
     dmdma_event_complete      = (1 << 0), /**< element_count elements transferred (or a circular wrap point) */
     dmdma_event_half_complete = (1 << 1), /**< Half of element_count transferred - circular transfers only */
     dmdma_event_error         = (1 << 2), /**< Transfer, FIFO, or direct-mode error reported by the hardware */
+    dmdma_event_aborted       = (1 << 3), /**< Fired synchronously by dmdma_lease_abort() / dmdma_ioctl_cmd_stop_transfer
+                                            *   while a transfer was actually in flight - an explicit, caller-initiated cancel */
+    dmdma_event_timeout       = (1 << 4), /**< dmdma_transfer_config_t.timeout_ms elapsed before the transfer
+                                            *   completed - dmdma itself stopped the stream via the dmosi_timer
+                                            *   armed at dmdma_lease_start()/dmdma_ioctl_cmd_start_transfer time */
 } dmdma_event_t;
 
 /**
