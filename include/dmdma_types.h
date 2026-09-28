@@ -94,6 +94,68 @@ typedef struct
                                                  *   not reset it) rather than a per-element deadline. */
 } dmdma_transfer_config_t;
 
+/**
+ * @brief Who decides when a peripheral transfer ends
+ *
+ * With dmdma_flow_controller_peripheral the peripheral signals the last
+ * data item itself (e.g. SDIO/SDMMC, whose data length is programmed in the
+ * peripheral) and element_count is ignored by the hardware (STM32: NDTR is
+ * forced to 0xFFFF, RM0090/RM0385 "Flow controller"). Only valid for
+ * memory<->peripheral transfers and never together with circular mode.
+ */
+typedef enum
+{
+    dmdma_flow_controller_dma = 0,          /**< DMA counts element_count (default) */
+    dmdma_flow_controller_peripheral,       /**< The peripheral ends the transfer */
+} dmdma_flow_controller_t;
+
+/**
+ * @brief Burst length (beats per request) on one side of a transfer
+ *
+ * Anything but single requires FIFO mode (fifo_threshold != direct).
+ */
+typedef enum
+{
+    dmdma_burst_single = 0,     /**< One element per request (default) */
+    dmdma_burst_4,              /**< Incremental burst of 4 beats */
+    dmdma_burst_8,              /**< Incremental burst of 8 beats */
+    dmdma_burst_16,             /**< Incremental burst of 16 beats */
+} dmdma_burst_t;
+
+/**
+ * @brief FIFO usage of a stream
+ *
+ * dmdma_fifo_direct disables the FIFO (direct mode, source and destination
+ * widths must match). The other values enable the 16-byte FIFO and set the
+ * level that triggers a memory access: the memory-side burst (beats x
+ * memory element width) must fit the threshold an integral number of times
+ * (RM0090/RM0385 "FIFO threshold configurations").
+ */
+typedef enum
+{
+    dmdma_fifo_direct = 0,              /**< Direct mode, no FIFO (default) */
+    dmdma_fifo_quarter,                 /**< FIFO threshold 1/4 (4 bytes) */
+    dmdma_fifo_half,                    /**< FIFO threshold 1/2 (8 bytes) */
+    dmdma_fifo_three_quarters,          /**< FIFO threshold 3/4 (12 bytes) */
+    dmdma_fifo_full,                    /**< FIFO threshold full (16 bytes) */
+} dmdma_fifo_threshold_t;
+
+/**
+ * @brief Optional stream options, see dmdma_lease_start_ex()
+ *
+ * A zero-initialized structure (or passing NULL) selects the behavior of
+ * dmdma_lease_start(): direct mode, single transfers, DMA flow control.
+ * Burst lengths are given per side of the transfer (source/destination),
+ * the port maps them to its peripheral/memory registers by direction.
+ */
+typedef struct
+{
+    dmdma_flow_controller_t flow_controller;    /**< Who ends a peripheral transfer */
+    dmdma_fifo_threshold_t  fifo_threshold;     /**< Direct mode or FIFO threshold */
+    dmdma_burst_t           source_burst;       /**< Burst length at the source */
+    dmdma_burst_t           destination_burst;  /**< Burst length at the destination */
+} dmdma_stream_options_t;
+
 /*
  * Which address is "the peripheral one" depends on direction, exactly as it
  * does in the underlying hardware register pair (PAR/M0AR on STM32):
