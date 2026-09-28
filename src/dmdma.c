@@ -217,6 +217,63 @@ static int validate_transfer_config(dmdma_controller_t controller, const dmdma_t
     return 0;
 }
 
+static uint32_t burst_beats(dmdma_burst_t burst)
+{
+    switch (burst)
+    {
+        case dmdma_burst_4:  return 4U;
+        case dmdma_burst_8:  return 8U;
+        case dmdma_burst_16: return 16U;
+        default:             return 1U;
+    }
+}
+
+/* FIFO bytes that trigger a memory access, 0 for direct mode. */
+static uint32_t fifo_threshold_bytes(dmdma_fifo_threshold_t threshold)
+{
+    return (threshold == dmdma_fifo_direct) ? 0U : 4U * (uint32_t)threshold;
+}
+
+/* RM0090/RM0385 "FIFO threshold configurations": the memory-side burst has
+ * to fit the threshold level an integral number of times. */
+static int validate_memory_burst(uint32_t threshold, dmdma_burst_t burst, dmdma_data_width_t width)
+{
+    uint32_t bytes = burst_beats(burst) * (uint32_t)width;
+    if (burst == dmdma_burst_single)
+    {
+        return 0;
+    }
+    return (bytes <= threshold && (threshold % bytes) == 0U) ? 0 : -EINVAL;
+}
+
+/* Checks dmdma_stream_options_t on top of validate_transfer_config(). */
+static int validate_stream_options(const dmdma_transfer_config_t *config, const dmdma_stream_options_t *options)
+{
+    if (options->flow_controller > dmdma_flow_controller_peripheral ||
+        options->fifo_threshold > dmdma_fifo_full ||
+        options->source_burst > dmdma_burst_16 || options->destination_burst > dmdma_burst_16)
+    {
+        return -EINVAL;
+    }
+    if (options->flow_controller == dmdma_flow_controller_peripheral &&
+        (config->direction == dmdma_direction_memory_to_memory || config->circular))
+    {
+        return -EINVAL;
+    }
+    uint32_t threshold = fifo_threshold_bytes(options->fifo_threshold);
+    if (threshold == 0U)
+    {
+        /* Direct mode: no bursts, both sides move the same element size. */
+        bool bursts = options->source_burst != dmdma_burst_single ||
+                      options->destination_burst != dmdma_burst_single;
+        return (bursts || config->source_width != config->destination_width) ? -EINVAL : 0;
+    }
+    bool memory_is_source = (config->direction == dmdma_direction_memory_to_peripheral);
+    return memory_is_source
+         ? validate_memory_burst(threshold, options->source_burst, config->source_width)
+         : validate_memory_burst(threshold, options->destination_burst, config->destination_width);
+}
+
 /* [dmdma] is the fast path; anything else falls back to whichever section
  * comes first in the file, so e.g. [dma1]/[dma2]-named sections work too. */
 static const char *detect_config_section(dmini_context_t config)
@@ -764,8 +821,8 @@ dmod_dmdma_api_declaration(1.0, void, _lease_release, ( dmdma_lease_t lease ))
     slot->cb.lease.user_ptr = NULL;
 }
 
-dmod_dmdma_api_declaration(1.0, int, _lease_start,
-    ( dmdma_lease_t lease, const dmdma_transfer_config_t *config ))
+static int lease_start(dmdma_lease_t lease, const dmdma_transfer_config_t *config,
+                       const dmdma_stream_options_t *options)
 {
     dmdma_stream_slot_t *slot = slot_from_lease(lease);
     if (slot == NULL)
@@ -777,6 +834,10 @@ dmod_dmdma_api_declaration(1.0, int, _lease_start,
     dmdma_controller_t controller = context->config.controller;
 
     int rc = validate_transfer_config(controller, config);
+    if (rc == 0 && options != NULL)
+    {
+        rc = validate_stream_options(config, options);
+    }
     if (rc != 0)
     {
         DMOD_LOG_ERROR("dmdma: rejecting lease transfer config on controller %u (rc=%d)\n", (unsigned)controller, rc);
@@ -784,12 +845,24 @@ dmod_dmdma_api_declaration(1.0, int, _lease_start,
     }
 
     slot->circular = config->circular;
-    rc = dmdma_port_stream_start(controller, slot->stream, config);
+    rc = dmdma_port_stream_start_ex(controller, slot->stream, config, options);
     if (rc == 0)
     {
         rc = arm_timeout(slot, config->timeout_ms);
     }
     return rc;
+}
+
+dmod_dmdma_api_declaration(1.0, int, _lease_start,
+    ( dmdma_lease_t lease, const dmdma_transfer_config_t *config ))
+{
+    return lease_start(lease, config, NULL);
+}
+
+dmod_dmdma_api_declaration(1.0, int, _lease_start_ex,
+    ( dmdma_lease_t lease, const dmdma_transfer_config_t *config, const dmdma_stream_options_t *options ))
+{
+    return lease_start(lease, config, options);
 }
 
 dmod_dmdma_api_declaration(1.0, void, _lease_abort, ( dmdma_lease_t lease ))

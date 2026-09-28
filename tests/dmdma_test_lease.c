@@ -77,8 +77,71 @@ static bool wait_until_idle(dmdma_lease_t lease)
     return false;
 }
 
-static uint8_t s_src[DMDMA_TEST_BYTES];
-static uint8_t s_dst[DMDMA_TEST_BYTES];
+static uint32_t s_src_words[DMDMA_TEST_BYTES / 4U];
+static uint32_t s_dst_words[DMDMA_TEST_BYTES / 4U];
+#define s_src ((uint8_t *)s_src_words)   /* word aligned for the FIFO/burst run */
+#define s_dst ((uint8_t *)s_dst_words)
+
+/* Invalid stream option combinations must be rejected before touching the port. */
+static bool check_option_rejections(dmdma_lease_t lease, const dmdma_transfer_config_t *words)
+{
+    dmdma_stream_options_t opt = { dmdma_flow_controller_dma, dmdma_fifo_direct, dmdma_burst_4, dmdma_burst_4 };
+    if (dmdma_lease_start_ex(lease, words, &opt) == 0)
+    {
+        Dmod_Printf("FAIL: burst in direct mode was accepted\n");
+        return false;
+    }
+    opt.fifo_threshold = dmdma_fifo_half;   /* 4 words x 4 bytes = 16 > 8 */
+    if (dmdma_lease_start_ex(lease, words, &opt) == 0)
+    {
+        Dmod_Printf("FAIL: memory burst larger than the FIFO threshold was accepted\n");
+        return false;
+    }
+    opt.fifo_threshold  = dmdma_fifo_full;
+    opt.flow_controller = dmdma_flow_controller_peripheral;
+    if (dmdma_lease_start_ex(lease, words, &opt) == 0)
+    {
+        Dmod_Printf("FAIL: peripheral flow control for memory-to-memory was accepted\n");
+        return false;
+    }
+    Dmod_Printf("PASS: invalid stream options correctly rejected\n");
+    return true;
+}
+
+/* FIFO mode, full threshold, 4-beat word bursts on both sides (the setup
+ * SDIO/SDMMC needs, minus the peripheral flow control mem-to-mem can't use). */
+static bool check_fifo_burst_transfer(dmdma_lease_t lease, const dmdma_transfer_config_t *bytes)
+{
+    dmdma_transfer_config_t words = *bytes;
+    words.source_width      = dmdma_data_width_word;
+    words.destination_width = dmdma_data_width_word;
+    words.element_count     = DMDMA_TEST_BYTES / 4U;
+    for (uint32_t i = 0; i < DMDMA_TEST_BYTES / 4U; i++)
+    {
+        s_src_words[i] = (i * 2654435761U) ^ 0xA5A5A5A5U;
+        s_dst_words[i] = 0;
+    }
+    if (!check_option_rejections(lease, &words))
+    {
+        return false;
+    }
+    dmdma_stream_options_t opt = { dmdma_flow_controller_dma, dmdma_fifo_full, dmdma_burst_4, dmdma_burst_4 };
+    if (dmdma_lease_start_ex(lease, &words, &opt) != 0 || !wait_until_idle(lease))
+    {
+        Dmod_Printf("FAIL: FIFO/burst transfer did not start or complete\n");
+        return false;
+    }
+    for (uint32_t i = 0; i < DMDMA_TEST_BYTES / 4U; i++)
+    {
+        if (s_src_words[i] != s_dst_words[i])
+        {
+            Dmod_Printf("FAIL: FIFO/burst mismatch at word %u\n", i);
+            return false;
+        }
+    }
+    Dmod_Printf("PASS: FIFO mode with 4-beat bursts copied %u byte(s) correctly\n", DMDMA_TEST_BYTES);
+    return true;
+}
 
 int main(int argc, char *argv[])
 {
@@ -228,6 +291,13 @@ int main(int argc, char *argv[])
             goto cleanup_lease;
         }
         Dmod_Printf("PASS: malformed transfer configs correctly rejected\n");
+
+        /* --- 5b. Stream options: FIFO mode and bursts (dmdma_lease_start_ex) --- */
+
+        if (!check_fifo_burst_transfer(lease, &transfer))
+        {
+            goto cleanup_lease;
+        }
 
         /* --- 6. Abort while a transfer is genuinely in flight notifies the owner --- */
         /*

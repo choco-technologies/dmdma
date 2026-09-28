@@ -80,6 +80,18 @@ dmod_dmdma_api(1.0, void, _lease_release, ( dmdma_lease_t lease ) );
 dmod_dmdma_api(1.0, int,    _lease_start,         ( dmdma_lease_t lease, const dmdma_transfer_config_t *config ) );
 
 /**
+ * Same as dmdma_lease_start() with explicit stream options - FIFO mode and
+ * threshold, burst lengths and the flow controller (see
+ * dmdma_stream_options_t). options == NULL behaves exactly like
+ * dmdma_lease_start(). Invalid combinations (burst without FIFO, a memory
+ * burst that does not fit the FIFO threshold, peripheral flow control for a
+ * memory-to-memory or circular transfer, ...) are rejected with -EINVAL
+ * before the port is touched.
+ */
+dmod_dmdma_api(1.0, int,    _lease_start_ex,      ( dmdma_lease_t lease, const dmdma_transfer_config_t *config,
+                                                     const dmdma_stream_options_t *options ) );
+
+/**
  * Abort whatever transfer is in flight; safe to call when idle. Fires the
  * lease's callback with dmdma_event_aborted, but only if a transfer was
  * actually in flight at the time of the call - aborting an already-idle

@@ -144,69 +144,122 @@ dmod_dmdma_port_api_declaration(1.0, void, _stream_release, ( dmdma_controller_t
 
 /* ---- Transfer control ---- */
 
-dmod_dmdma_port_api_declaration(1.0, int, _stream_start,
-    ( dmdma_controller_t controller, dmdma_stream_t stream, const dmdma_transfer_config_t *config ))
+/* Register-level view of one transfer: which side of source/destination is
+ * "the peripheral" depends on direction, exactly as in the PAR/M0AR pair -
+ * memory_to_peripheral swaps them, peripheral_to_memory and
+ * memory_to_memory both use PAR=source, M0AR=destination as-is. */
+typedef struct
+{
+    uint32_t            peripheral_addr;
+    uint32_t            memory_addr;
+    dmdma_data_width_t  peripheral_width;
+    dmdma_data_width_t  memory_width;
+    bool                peripheral_inc;
+    bool                memory_inc;
+    dmdma_burst_t       peripheral_burst;
+    dmdma_burst_t       memory_burst;
+} stream_sides_t;
+
+static stream_sides_t map_sides(const dmdma_transfer_config_t *config, const dmdma_stream_options_t *options)
+{
+    bool swap = (config->direction == dmdma_direction_memory_to_peripheral);
+    const void *src = config->source_address;
+    const void *dst = config->destination_address;
+    dmdma_burst_t src_burst = (options != NULL) ? options->source_burst : dmdma_burst_single;
+    dmdma_burst_t dst_burst = (options != NULL) ? options->destination_burst : dmdma_burst_single;
+
+    stream_sides_t sides;
+    sides.peripheral_addr  = (uint32_t)(uintptr_t)(swap ? dst : src);
+    sides.memory_addr      = (uint32_t)(uintptr_t)(swap ? src : dst);
+    sides.peripheral_width = swap ? config->destination_width : config->source_width;
+    sides.memory_width     = swap ? config->source_width : config->destination_width;
+    sides.peripheral_inc   = swap ? config->destination_increment : config->source_increment;
+    sides.memory_inc       = swap ? config->source_increment : config->destination_increment;
+    sides.peripheral_burst = swap ? dst_burst : src_burst;
+    sides.memory_burst     = swap ? src_burst : dst_burst;
+    return sides;
+}
+
+static uint32_t direction_bits(dmdma_direction_t direction)
+{
+    switch (direction)
+    {
+        case dmdma_direction_peripheral_to_memory: return DMA_SxCR_DIR_PERIPH_TO_MEM;
+        case dmdma_direction_memory_to_peripheral: return DMA_SxCR_DIR_MEM_TO_PERIPH;
+        case dmdma_direction_memory_to_memory:
+        default:                                   return DMA_SxCR_DIR_MEM_TO_MEM;
+    }
+}
+
+static uint32_t build_cr(const dmdma_transfer_config_t *config, const stream_sides_t *sides,
+                         const dmdma_stream_options_t *options)
+{
+    uint32_t cr = direction_bits(config->direction);
+    cr |= width_to_size_field(sides->peripheral_width) << DMA_SxCR_PSIZE_Pos;
+    cr |= width_to_size_field(sides->memory_width)     << DMA_SxCR_MSIZE_Pos;
+    cr |= (uint32_t)sides->peripheral_burst << DMA_SxCR_PBURST_Pos;
+    cr |= (uint32_t)sides->memory_burst     << DMA_SxCR_MBURST_Pos;
+    if (sides->peripheral_inc) cr |= DMA_SxCR_PINC;
+    if (sides->memory_inc)     cr |= DMA_SxCR_MINC;
+    if (config->circular)      cr |= DMA_SxCR_CIRC | DMA_SxCR_HTIE;
+    cr |= ((uint32_t)config->priority & 0x3U) << DMA_SxCR_PL_Pos;
+    cr |= DMA_SxCR_TCIE | DMA_SxCR_TEIE;
+
+    /* Memory-to-memory ignores CHSEL and requires the DMA itself to be the
+     * flow controller - PFCTRL stays 0 (the core rejects anything else). */
+    if (config->direction != dmdma_direction_memory_to_memory)
+    {
+        cr |= ((uint32_t)config->request & 0x7U) << DMA_SxCR_CHSEL_Pos;
+        if (options != NULL && options->flow_controller == dmdma_flow_controller_peripheral)
+        {
+            cr |= DMA_SxCR_PFCTRL;
+        }
+    }
+    return cr;
+}
+
+/* Direct mode keeps the reset value; FIFO mode sets DMDIS and FTH
+ * (dmdma_fifo_quarter..full map to FTH 0..3). FEIE stays off - see
+ * stm32_dma_stream_irq(). */
+static uint32_t build_fcr(const dmdma_stream_options_t *options)
+{
+    if (options == NULL || options->fifo_threshold == dmdma_fifo_direct)
+    {
+        return DMA_SxFCR_RESET_VALUE;
+    }
+    uint32_t fth = (uint32_t)options->fifo_threshold - (uint32_t)dmdma_fifo_quarter;
+    return DMA_SxFCR_DMDIS | (fth << DMA_SxFCR_FTH_Pos);
+}
+
+dmod_dmdma_port_api_declaration(1.0, int, _stream_start_ex,
+    ( dmdma_controller_t controller, dmdma_stream_t stream,
+      const dmdma_transfer_config_t *config, const dmdma_stream_options_t *options ))
 {
     if (validate(controller, stream) != 0 || config == NULL) return -1;
     if (config->element_count == 0U || config->element_count > 0xFFFFU) return -1;
     if (config->destination_address == NULL) return -1;
     if (config->direction != dmdma_direction_memory_to_memory && config->source_address == NULL) return -1;
 
-    /* Which side of source/destination is "the peripheral" for register
-     * purposes depends on direction: memory_to_peripheral swaps PAR/M0AR
-     * relative to source/destination, peripheral_to_memory and
-     * memory_to_memory both use PAR=source, M0AR=destination as-is. */
-    bool peripheral_is_destination = (config->direction == dmdma_direction_memory_to_peripheral);
-
-    uint32_t peripheral_addr = (uint32_t)(uintptr_t)(peripheral_is_destination
-        ? config->destination_address : config->source_address);
-    uint32_t memory_addr = (uint32_t)(uintptr_t)(peripheral_is_destination
-        ? config->source_address : config->destination_address);
-    dmdma_data_width_t peripheral_width = peripheral_is_destination
-        ? config->destination_width : config->source_width;
-    dmdma_data_width_t memory_width = peripheral_is_destination
-        ? config->source_width : config->destination_width;
-    bool peripheral_inc = peripheral_is_destination
-        ? config->destination_increment : config->source_increment;
-    bool memory_inc = peripheral_is_destination
-        ? config->source_increment : config->destination_increment;
-
+    stream_sides_t sides = map_sides(config, options);
     volatile DMA_Stream_TypeDef *s = get_stream(controller, stream);
     stream_disable_and_wait(s);
     stream_clear_flags(controller, stream);
 
-    uint32_t cr = 0U;
-    switch (config->direction)
-    {
-        case dmdma_direction_peripheral_to_memory: cr |= DMA_SxCR_DIR_PERIPH_TO_MEM; break;
-        case dmdma_direction_memory_to_peripheral: cr |= DMA_SxCR_DIR_MEM_TO_PERIPH; break;
-        case dmdma_direction_memory_to_memory:
-        default:                                   cr |= DMA_SxCR_DIR_MEM_TO_MEM;    break;
-    }
-
-    cr |= width_to_size_field(peripheral_width) << DMA_SxCR_PSIZE_Pos;
-    cr |= width_to_size_field(memory_width)     << DMA_SxCR_MSIZE_Pos;
-    if (peripheral_inc)    cr |= DMA_SxCR_PINC;
-    if (memory_inc)        cr |= DMA_SxCR_MINC;
-    if (config->circular)  cr |= DMA_SxCR_CIRC | DMA_SxCR_HTIE;
-    cr |= ((uint32_t)config->priority & 0x3U) << DMA_SxCR_PL_Pos;
-    cr |= DMA_SxCR_TCIE | DMA_SxCR_TEIE;
-
-    /* Memory-to-memory ignores CHSEL and requires the DMA itself to be the
-     * flow controller - PFCTRL=0 (already the case, we never set it). */
-    if (config->direction != dmdma_direction_memory_to_memory)
-    {
-        cr |= ((uint32_t)config->request & 0x7U) << DMA_SxCR_CHSEL_Pos;
-    }
-
-    s->PAR  = peripheral_addr;
-    s->M0AR = memory_addr;
+    s->PAR  = sides.peripheral_addr;
+    s->M0AR = sides.memory_addr;
     s->NDTR = (uint32_t)config->element_count;
+    s->FCR  = build_fcr(options);
 
     nvic_enable_irq(dma_irqn[controller][stream]);
-    s->CR = cr | DMA_SxCR_EN;
+    s->CR = build_cr(config, &sides, options) | DMA_SxCR_EN;
 
     return 0;
+}
+
+dmod_dmdma_port_api_declaration(1.0, int, _stream_start,
+    ( dmdma_controller_t controller, dmdma_stream_t stream, const dmdma_transfer_config_t *config ))
+{
+    return dmdma_port_stream_start_ex(controller, stream, config, NULL);
 }
 
 dmod_dmdma_port_api_declaration(1.0, void, _stream_stop, ( dmdma_controller_t controller, dmdma_stream_t stream ))
@@ -267,7 +320,14 @@ void stm32_dma_stream_irq(dmdma_controller_t controller, dmdma_stream_t stream)
     uint32_t event_flags = 0U;
     if (sr & DMA_FLAG_TCIF(shift)) event_flags |= (uint32_t)dmdma_event_complete;
     if (sr & DMA_FLAG_HTIF(shift)) event_flags |= (uint32_t)dmdma_event_half_complete;
-    if (sr & (DMA_FLAG_TEIF(shift) | DMA_FLAG_DMEIF(shift) | DMA_FLAG_FEIF(shift)))
+    /* FEIF is an error in direct mode only. In FIFO mode it is merely
+     * informational while FEIE is off (RM0090/RM0385 "FIFO error"; ST's own
+     * SD driver ignores it too) - e.g. SDIO with peripheral flow control
+     * can raise it at the end of a transfer without any data loss. */
+    uint32_t errors = DMA_FLAG_TEIF(shift) | DMA_FLAG_DMEIF(shift);
+    if ((get_stream(controller, stream)->FCR & DMA_SxFCR_DMDIS) == 0U)
+        errors |= DMA_FLAG_FEIF(shift);
+    if (sr & errors)
         event_flags |= (uint32_t)dmdma_event_error;
 
     stream_clear_flags(controller, stream);

@@ -120,6 +120,43 @@ PAR/M0AR register pair:
 | `memory_to_peripheral`    | memory buffer        | peripheral register    |
 | `memory_to_memory`        | memory buffer        | memory buffer          |
 
+### `dmdma_stream_options_t` (optional, `dmdma_lease_start_ex()`)
+
+```c
+typedef struct
+{
+    dmdma_flow_controller_t flow_controller;    /* dma (default) | peripheral */
+    dmdma_fifo_threshold_t  fifo_threshold;     /* direct (default) | quarter | half | three_quarters | full */
+    dmdma_burst_t           source_burst;       /* single (default) | 4 | 8 | 16 beats */
+    dmdma_burst_t           destination_burst;
+} dmdma_stream_options_t;
+```
+
+A zero-initialized structure (or `NULL`) is exactly the behavior of
+`dmdma_lease_start()`. Rules checked by the core before the port is touched
+(`-EINVAL` otherwise):
+
+- bursts need FIFO mode; direct mode also needs equal source/destination widths,
+- the memory-side burst (beats x memory element width) must fit the FIFO
+  threshold (4/8/12/16 bytes) an integral number of times,
+- `dmdma_flow_controller_peripheral` is only valid for memory<->peripheral,
+  non-circular transfers; the hardware then ignores `element_count` and the
+  peripheral ends the transfer (e.g. SDIO/SDMMC).
+
+In FIFO mode the FIFO-error flag is not reported as `dmdma_event_error`
+(the FIFO error interrupt is not enabled); in direct mode it still is.
+
+## Lease API (`dmdma_lease.h`)
+
+| Function | Description |
+|----------|-------------|
+| `dmdma_lease_acquire(controller, stream)` | Reserve a stream (shared pool with `/dev/dmdmaN/M`) |
+| `dmdma_lease_release(lease)` | Abort, disable the IRQ, return the stream |
+| `dmdma_lease_start(lease, config)` | Validate and start a transfer (direct mode, single transfers) |
+| `dmdma_lease_start_ex(lease, config, options)` | Same, with `dmdma_stream_options_t` |
+| `dmdma_lease_abort(lease)` / `_is_busy()` / `_get_remaining()` | Transfer control |
+| `dmdma_lease_set_callback(lease, callback, user_ptr)` | Completion/error/timeout/abort callback |
+
 ### `dmdma_event_t`
 
 ```c

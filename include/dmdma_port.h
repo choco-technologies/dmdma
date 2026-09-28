@@ -41,6 +41,11 @@ dmod_dmdma_port_api(1.0, void, _stream_release, ( dmdma_controller_t controller,
 
 dmod_dmdma_port_api(1.0, int,    _stream_start, ( dmdma_controller_t controller, dmdma_stream_t stream,
                                                    const dmdma_transfer_config_t *config ) );
+/* Like _stream_start(), with the stream options already validated by the
+ * core (options == NULL means the _stream_start() defaults). */
+dmod_dmdma_port_api(1.0, int,    _stream_start_ex, ( dmdma_controller_t controller, dmdma_stream_t stream,
+                                                      const dmdma_transfer_config_t *config,
+                                                      const dmdma_stream_options_t *options ) );
 dmod_dmdma_port_api(1.0, void,   _stream_stop,  ( dmdma_controller_t controller, dmdma_stream_t stream ) );
 dmod_dmdma_port_api(1.0, bool,   _stream_is_busy, ( dmdma_controller_t controller, dmdma_stream_t stream ) );
 dmod_dmdma_port_api(1.0, size_t, _stream_get_remaining, ( dmdma_controller_t controller, dmdma_stream_t stream ) );

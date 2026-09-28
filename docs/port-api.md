@@ -66,6 +66,17 @@ completion/half-complete/error reporting are added automatically. Returns
 `controller`/`stream` is out of range.
 
 ```c
+int dmdma_port_stream_start_ex(dmdma_controller_t controller, dmdma_stream_t stream,
+                                const dmdma_transfer_config_t *config,
+                                const dmdma_stream_options_t *options);
+```
+Same as `_stream_start()` plus FIFO mode/threshold, burst lengths and the
+flow controller (`options` already validated by the core; `NULL` means the
+`_stream_start()` defaults). On STM32F4/F7: `DMA_SxFCR.DMDIS`/`FTH`,
+`DMA_SxCR.PBURST`/`MBURST` (mapped from source/destination by direction)
+and `DMA_SxCR.PFCTRL`. `_stream_start()` is `_stream_start_ex(..., NULL)`.
+
+```c
 void dmdma_port_stream_stop(dmdma_controller_t controller, dmdma_stream_t stream);
 ```
 Abort a transfer in progress (or a no-op if the stream isn't running).
