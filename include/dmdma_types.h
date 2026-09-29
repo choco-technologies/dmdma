@@ -196,7 +196,10 @@ typedef enum
  */
 typedef enum
 {
-    dmdma_ioctl_cmd_start_transfer = 1,     /**< arg = const dmdma_transfer_config_t* - configure and start */
+    /* Private commands start at DMDRVI_IOCTL_CUSTOM_BASE (0x1000, dmdrvi_ioctl.h)
+     * so they never collide with the standard DMDRVI_IOCTL_* commands (network,
+     * block, monitor) that dmdevfs and other generic clients send to any node. */
+    dmdma_ioctl_cmd_start_transfer = 0x1000, /**< arg = const dmdma_transfer_config_t* - configure and start */
     dmdma_ioctl_cmd_stop_transfer,          /**< Abort a transfer in progress; arg = NULL */
     dmdma_ioctl_cmd_is_busy,                /**< arg = bool* - whether a transfer is currently in flight */
     dmdma_ioctl_cmd_get_remaining,          /**< arg = size_t* - elements left in the current/last transfer */
