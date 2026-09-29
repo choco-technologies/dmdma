@@ -11,6 +11,11 @@
 /* "DMDA" packed into a uint32_t - see dmdrvi context magic-field convention */
 #define DMDMA_CONTEXT_MAGIC   0x444D4441UL
 
+#ifdef DMDRVI_IOCTL_CUSTOM_BASE
+_Static_assert(dmdma_ioctl_cmd_start_transfer == DMDRVI_IOCTL_CUSTOM_BASE,
+               "dmdma private ioctl commands must start at DMDRVI_IOCTL_CUSTOM_BASE");
+#endif
+
 /* Generous upper bound on physical DMA controllers a board can have - real
  * hardware (STM32F4/F7) has at most 2. */
 #define DMDMA_MAX_CONTROLLERS 4U
@@ -655,10 +660,12 @@ dmod_dmdrvi_dif_api_declaration(2.0, dmdma, int, _ioctl,
         return -EINVAL;
     }
 
-    if (command < 0 || command >= dmdma_ioctl_cmd_max)
+    /* Not an error: generic clients (e.g. dmdevfs probing every node for the
+     * block/monitor classes) send standard DMDRVI_IOCTL_* commands a DMA stream
+     * does not implement - answer -ENOTTY quietly, as dmdrvi expects. */
+    if (command < dmdma_ioctl_cmd_start_transfer || command >= dmdma_ioctl_cmd_max)
     {
-        DMOD_LOG_ERROR("Invalid ioctl command %d\n", command);
-        return -EINVAL;
+        return -ENOTTY;
     }
 
     dmdma_controller_t controller = context->config.controller;
@@ -713,7 +720,7 @@ dmod_dmdrvi_dif_api_declaration(2.0, dmdma, int, _ioctl,
             return 0;
 
         default:
-            return -EINVAL;
+            return -ENOTTY;
     }
 }
 
