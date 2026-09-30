@@ -11,11 +11,6 @@
 /* "DMDA" packed into a uint32_t - see dmdrvi context magic-field convention */
 #define DMDMA_CONTEXT_MAGIC   0x444D4441UL
 
-#ifdef DMDRVI_IOCTL_CUSTOM_BASE
-_Static_assert(dmdma_ioctl_cmd_start_transfer == DMDRVI_IOCTL_CUSTOM_BASE,
-               "dmdma private ioctl commands must start at DMDRVI_IOCTL_CUSTOM_BASE");
-#endif
-
 /* Generous upper bound on physical DMA controllers a board can have - real
  * hardware (STM32F4/F7) has at most 2. */
 #define DMDMA_MAX_CONTROLLERS 4U

@@ -34,8 +34,10 @@ dmod_add_library(${DMOD_MODULE_NAME} ${DMOD_MODULE_VERSION}
     ${COMMON_SOURCES}
 )
 
+# dmdrvi: dmdma_types.h pulls in dmdrvi_ioctl.h (DMDRVI_IOCTL_CUSTOM_BASE)
 dmod_link_modules(${DMOD_MODULE_NAME}
     dmosi
+    dmdrvi
 )
 
 target_include_directories(${DMOD_MODULE_NAME} BEFORE PRIVATE

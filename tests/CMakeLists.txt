@@ -22,8 +22,10 @@ target_link_libraries(dmdma_test_port
     dmdma_port_if
 )
 
+# dmdrvi: dmdma_types.h pulls in dmdrvi_ioctl.h (DMDRVI_IOCTL_CUSTOM_BASE)
 dmod_link_modules(dmdma_test_port
     dmheap@>=0.6
+    dmdrvi
 )
 
 # dmdma_test_dev instead opens the real device node dmdevfs exposes once
@@ -40,6 +42,7 @@ target_include_directories(dmdma_test_dev PRIVATE
 
 dmod_link_modules(dmdma_test_dev
     dmheap@>=0.6
+    dmdrvi
 )
 
 # dmdma_test_lease exercises the dmdma_lease.h Module API the way a
@@ -61,4 +64,8 @@ dmod_add_executable(dmdma_test_lease ${DMOD_MODULE_VERSION}
 
 target_link_libraries(dmdma_test_lease
     dmdma_if
+)
+
+dmod_link_modules(dmdma_test_lease
+    dmdrvi
 )
