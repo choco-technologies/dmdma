@@ -144,6 +144,11 @@ knows which controller/stream/request line its hardware is wired to opens
 that exact stream directly and drives it the same way, just with a real
 peripheral address and request line instead of `DMDMA_REQUEST_NONE`:
 
+For STM32F4/F7 peripheral transfers, pass request `0` for hardware channel 0.
+`DMDMA_REQUEST_NONE` (also zero) applies only to memory-to-memory transfers;
+the transfer direction makes the two uses unambiguous. The STM32 port still
+accepts legacy request `8` as a channel 0 alias.
+
 ```c
 dmdma_transfer_config_t rx = {
     .direction             = dmdma_direction_peripheral_to_memory,

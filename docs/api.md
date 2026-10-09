@@ -90,6 +90,11 @@ request id on families that have one). The *value* is meaningless to
 supplied by whichever peripheral driver's own port knows which request line
 its hardware is wired to. Use `DMDMA_REQUEST_NONE` for
 `dmdma_direction_memory_to_memory` transfers, which need no request line.
+For a peripheral direction, the request is interpreted by the target port;
+zero is a valid selector on STM32F4/F7 and means hardware DMA channel 0.
+`DMDMA_REQUEST_NONE` is used only with memory-to-memory direction. The
+STM32 port continues to accept values 8 through 15 as aliases for channels
+0 through 7 so modules built against older releases keep working.
 
 ### `dmdma_transfer_config_t`
 
