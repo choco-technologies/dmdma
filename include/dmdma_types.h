@@ -65,6 +65,8 @@ typedef enum
  * peripheral driver's own port (e.g. dmuart's stm32f7 port) knows which
  * request line its hardware is wired to. Use DMDMA_REQUEST_NONE for
  * dmdma_direction_memory_to_memory transfers, which need no request line.
+ * For a peripheral direction, selector zero is passed to the port: on
+ * STM32F4/F7 it is hardware channel zero. Direction determines the meaning.
  */
 typedef uint16_t dmdma_request_t;
 

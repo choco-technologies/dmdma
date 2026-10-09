@@ -202,12 +202,8 @@ static int validate_transfer_config(dmdma_controller_t controller, const dmdma_t
         {
             return -EINVAL;
         }
-        if (config->request == DMDMA_REQUEST_NONE)
-        {
-            /* A peripheral direction with no request line can never fire -
-             * almost certainly a caller that forgot to set it. */
-            return -EINVAL;
-        }
+        /* A request selector belongs to the target port. Zero is a valid
+         * hardware channel on STM32F4/F7 and must reach that port. */
     }
 
     if (((uintptr_t)config->source_address % (uintptr_t)config->source_width) != 0)
