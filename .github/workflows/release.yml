@@ -68,6 +68,7 @@ jobs:
           # in this repo (normally dmdma and dmdma_port, but
           # this discovers whatever is actually there).
           cmake .. \
+            -DDMOD_COMPRESSION_METHOD=deflate \
             -DDMOD_MODULE_VERSION="${{ steps.get_version.outputs.version }}" \
             -DDMOD_CPU_FAMILY="${CPU_FAMILY}"
 
