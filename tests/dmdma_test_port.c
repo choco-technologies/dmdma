@@ -25,9 +25,13 @@
  * second buffer, then verifies the copy is byte-for-byte identical.
  */
 
-#define DMDMA_TEST_MAX_BYTES               512U
+/* the optional third argument raises it (more than one descriptor of the ESP32-S3 GDMA is 4092 bytes) */
+static size_t dmdma_test_max_bytes = 512U;
+#define DMDMA_TEST_MAX_BYTES               dmdma_test_max_bytes
 #define DMDMA_TEST_BUSY_POLL_ITERATIONS    1000000UL
-#define DMDMA_TEST_CONTROLLER              1U /* DMA2 - mem-to-mem capable */
+/* DMA2 of the STM32 - mem-to-mem capable; the optional second argument chooses another controller (0 for the GDMA of the ESP32-S3) */
+static unsigned dmdma_test_controller = 1U;
+#define DMDMA_TEST_CONTROLLER              dmdma_test_controller
 #define DMDMA_TEST_STREAM                  0U
 
 /* Runs the transfer and verifies it; stream_acquire()/_release() are paired
@@ -111,19 +115,31 @@ static int run_transfer_test(const uint8_t *src, uint8_t *dst, size_t bytes_read
     return 0;
 }
 
+static unsigned parse_number(const char *text)
+{
+    unsigned value = 0;
+    for (; *text >= '0' && *text <= '9'; text++)
+        value = value * 10U + (unsigned)(*text - '0');
+    return value;
+}
+
 int main(int argc, char *argv[])
 {
     Dmod_Printf("\n=== DMDMA Port-Level Smoke Test ===\n\n");
 
     if (argc < 2)
     {
-        Dmod_Printf("Usage: dmdma_test_port <path-to-file>\n");
-        Dmod_Printf("Reads up to %u bytes from the given file and verifies\n", DMDMA_TEST_MAX_BYTES);
-        Dmod_Printf("that DMA2 can copy them byte-for-byte in memory.\n\n");
+        Dmod_Printf("Usage: dmdma_test_port <path-to-file> [controller [max-bytes]]\n");
+        Dmod_Printf("Reads up to %u bytes (default 512) from the given file and verifies\n", (unsigned)DMDMA_TEST_MAX_BYTES);
+        Dmod_Printf("that the controller (default 1: DMA2) can copy them byte-for-byte in memory.\n\n");
         return -1;
     }
 
     const char *path = argv[1];
+    if (argc > 2)
+        dmdma_test_controller = parse_number(argv[2]);
+    if (argc > 3 && parse_number(argv[3]) != 0U)
+        dmdma_test_max_bytes = parse_number(argv[3]);
 
     void *file = Dmod_FileOpen(path, "rb");
     if (file == NULL)

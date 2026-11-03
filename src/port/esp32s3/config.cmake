@@ -1,0 +1,3 @@
+# DMOD_TOOLS_NAME must match a directory under dmod/configs/arch/...
+#   esp32s3  -> arch/xtensa/esp32s3
+set(DMOD_TOOLS_NAME "arch/xtensa/esp32s3" CACHE STRING "Name of the tools configuration")

@@ -21,6 +21,10 @@ set(DMOD_DMR_PATH           ${CMAKE_SOURCE_DIR}/dmdma_port.dmr)
 # of the logic lives in stm32_common and per-family port.c stays thin
 # (lifecycle + IRQ vector forwarding only) - see src/port/stm32_common/.
 set(COMMON_SOURCES stm32_common/stm32_common.c)
+if(DMOD_CPU_FAMILY STREQUAL "esp32s3")
+    # the GDMA of the ESP32-S3 is its own controller: one file
+    set(COMMON_SOURCES)
+endif()
 
 #
 #   dmod_add_library - create a library module

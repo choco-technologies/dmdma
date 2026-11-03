@@ -1,0 +1,40 @@
+dmdma on the Waveshare ESP32-S3-Touch-LCD-2.8 (ESP32-S3FN16R8), 2026-11-03
+Firmware: dmod-boot feature/esp32-s3, modules in the external RAM, dmdma driver=mcu/esp32s3.ini, buffers from the "dma" heap
+
+Port level (dmdma_test_port <file> 0 [max-bytes]; the file is on /ext):
+esp32s3fn16r8@/> dmdma_test_port /ext/hello.txt 0
+Read 6 byte(s) from '/ext/hello.txt'
+PASS: DMA1 copied 6 byte(s) correctly
+esp32s3fn16r8@/> dmdma_test_port /ext/rnd.bin 0 4092
+Read 4092 byte(s) from '/ext/rnd.bin'
+PASS: DMA1 copied 4092 byte(s) correctly
+esp32s3fn16r8@/> dmdma_test_port /ext/rnd.bin 0 4093
+Read 4093 byte(s) from '/ext/rnd.bin'
+PASS: DMA1 copied 4093 byte(s) correctly
+esp32s3fn16r8@/> dmdma_test_port /ext/rnd.bin 0 12000
+Read 12000 byte(s) from '/ext/rnd.bin'
+PASS: DMA1 copied 12000 byte(s) correctly
+esp32s3fn16r8@/> dmdma_test_port /ext/rnd.bin 0 20000
+[ERROR] dmheap: Unable to allocate 20000 bytes for module dma.
+ERROR: out of memory (20000 bytes from the 'dma' heap)
+esp32s3fn16r8@/> dmdma_test_port /ext/rnd.bin 1
+Read 512 byte(s) from '/ext/rnd.bin'
+ERROR: controller 1 not supported by this port
+
+Through the core (dmdma_test_dev, dmdma_test_lease):
+esp32s3fn16r8@/> ls /dev/dmdma0
+esp32s3fn16r8@/> dmdma_test_dev /dev/dmdma0/0
+Opening '/dev/dmdma0/0'...
+Starting memory-to-memory transfer of 64 byte(s) via ioctl()...
+PASS: '/dev/dmdma0/0' copied 64 byte(s) correctly
+esp32s3fn16r8@/> dmdma_test_lease 0 1
+Acquired lease on controller 0 stream 1
+dmdma: [ERROR] dmdma: stream 0/1 already reserved
+PASS: double-acquire correctly rejected
+PASS: aborting an idle stream fired no callback
+Starting memory-to-memory transfer of 16384 byte(s) via the lease API...
+ERROR: dmdma_lease_start() failed
+esp32s3fn16r8@/> 
+
+Not validated: memory <-> peripheral transfers and circular ones (no peripheral driver uses the GDMA yet), several streams at a time, errors of the
+descriptors. dmdma_test_lease fails as it is: its 16 kB buffers are static, i.e. in the external RAM, which the port refuses (-EINVAL).

@@ -48,3 +48,30 @@ the exact silicon revision before shipping. In particular, double check:
   values (assumed identical on both families, in `stm32_common_regs.h`).
 - Only DMA2 (controller 1) can perform memory-to-memory transfers - this is
   asserted in `stm32_common.c`'s `_supports_memory_to_memory()`.
+
+## ESP32-S3: GDMA
+
+`src/port/esp32s3/port.c` is the whole port (its own controller, nothing is shared with `stm32_common`). One controller (0) with 5
+streams (`/dev/dmdma0/0` .. `4`), memory-to-memory capable. Stream n is the channel pair n of the GDMA: memory -> peripheral
+uses its OUT side, peripheral -> memory the IN side, memory -> memory both.
+
+What differs from the STM32 DMA, and so from the transfer config:
+
+* The GDMA works on **linked lists of descriptors** (12 bytes each, 4092 bytes of data at most) that the port builds from the config; they
+  come from the heap tagged `"dma"`, which has to be in the internal RAM (it is on dmod-boot: the linker region `dma`).
+* There is **no peripheral register address**: the peripheral is chosen by `request` = its PERI_SEL (SPI2 0, SPI3 1, UHCI0 2, I2S0 3,
+  I2S1 4, LCD_CAM 5, AES 6, SHA 7, ADC 8, RMT 9) and the address on the peripheral side of the config is ignored.
+* The memory buffers must be in the **internal RAM** (0x3FC88000..0x3FCF0000): the external RAM is behind the cache, which the GDMA does
+  not see (`-EINVAL` otherwise). On dmod-boot the heap puts allocations in the external RAM first, so take buffers from the `"dma"`
+  heap (`Dmod_MallocTagged("dma", size)`); a module's static data is not in the internal RAM either.
+* Source and destination widths are equal (the GDMA moves bytes), the memory side increments; flow control by the peripheral, FIFO and
+  bursts are not supported (`-ENOTSUP`). A transfer is at most 256 KB.
+* A memory-to-memory transfer needs the PERI_SEL of a peripheral that can do it; the port takes the highest one (9 down to 1) that no
+  other running stream is bound to.
+* The end of a transfer is read from the owner bits of the descriptors (the GDMA clears them). `get_remaining()` therefore has the
+  granularity of a descriptor. A circular transfer (peripheral directions only) is a ring of an even number of descriptors: the first
+  half finished is `dmdma_event_half_complete`, the second one `dmdma_event_complete`.
+* All ten interrupt sources go to one level 1 line of the CPU (17).
+
+`tests/dmdma_test_port` takes the controller and a size limit as optional arguments (`dmdma_test_port <file> 0 12000` on the ESP32-S3);
+`dmdma_test_lease` uses static buffers and so does not apply to it as it is.
