@@ -72,11 +72,12 @@ View documentation using `dmf-man dmdma` / `dmf-man dmdma api` /
 This module ships two DMOD modules: the architecture-independent
 `dmdma` and `dmdma_port`, which contains the
 architecture-specific implementation. The active architecture is selected via
-`DMOD_CPU_FAMILY` (default: `stm32f7`; `stm32f4` is also supported):
+`DMOD_CPU_FAMILY` (default: `stm32f7`; `stm32f4` and `esp32s3` are also supported):
 
 ```bash
 cmake .. -DDMOD_CPU_FAMILY=stm32f7
 cmake .. -DDMOD_CPU_FAMILY=stm32f4
+cmake .. -DDMOD_CPU_FAMILY=esp32s3
 ```
 
 stm32f4 and stm32f7 share the identical DMA controller IP block, so nearly

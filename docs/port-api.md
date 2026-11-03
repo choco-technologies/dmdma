@@ -17,7 +17,9 @@ hardware-level smoke test with no `dmdevfs`/`dmdrvi`/config involved.
 
 Currently supported architectures: `stm32f4`, `stm32f7` (identical DMA
 controller IP block, so nearly all logic is shared - see
-[port-implementation.md](port-implementation.md)).
+[port-implementation.md](port-implementation.md)) and `esp32s3` (the GDMA, which
+works on descriptors and has no peripheral register address - see
+[the ESP32-S3 section](port-implementation.md#esp32-s3-gdma)).
 
 ## Capability Queries
 
