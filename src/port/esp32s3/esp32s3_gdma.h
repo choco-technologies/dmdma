@@ -82,11 +82,11 @@ typedef struct
 #define ESP32S3_GDMA_PERIP_BIT          (1UL << 6)
 
 /*
- * The interrupt sources of the channels (IN 64..68, OUT 69..73; level) all go to one level 1 line of the CPU, 17 (the others in use: the
+ * The interrupt sources of the channels (IN 66..70, OUT 71..75; level) all go to one level 1 line of the CPU, 17 (the others in use: the
  * GPIO 2, the UARTs 3, 9 and 12, the USB Serial/JTAG 13, the I2C 4 and 5, the software one of the flash 7).
  */
-#define ESP32S3_GDMA_IN_SOURCE(ch)      (64UL + (ch))
-#define ESP32S3_GDMA_OUT_SOURCE(ch)     (69UL + (ch))
+#define ESP32S3_GDMA_IN_SOURCE(ch)      (66UL + (ch))
+#define ESP32S3_GDMA_OUT_SOURCE(ch)     (71UL + (ch))
 #define ESP32S3_GDMA_CPU_INTR           17U
 #define ESP32S3_INTMTX_MAP_REG(source)  (0x600C2000UL + 4UL * (source))
 
