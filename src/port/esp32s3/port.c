@@ -357,7 +357,8 @@ dmod_dmdma_port_api_declaration(1.0, int, _stream_start_ex,
     {
         *reg(GDMA_REG(stream, GDMA_OUT_CONF0)) = ext_src ? (GDMA_OUT_CONF0_DATA_BURST_EN | GDMA_OUT_CONF0_OUTDSCR_BURST_EN)
                                                          : GDMA_OUT_CONF0_AUTO_WRBACK;
-        *reg(GDMA_REG(stream, GDMA_OUT_CONF1)) = ext_src ? (external_block_mode() << GDMA_OUT_CONF1_EXT_MEM_BK_S) : 0U;
+        if (ext_src)                                                    /* the other transfers leave the register as it is */
+            *reg(GDMA_REG(stream, GDMA_OUT_CONF1)) = external_block_mode() << GDMA_OUT_CONF1_EXT_MEM_BK_S;
         *reg(GDMA_REG(stream, GDMA_OUT_PERI_SEL)) = peri;
         *reg(GDMA_REG(stream, GDMA_OUT_PRI)) = pri;
         *reg(GDMA_REG(stream, GDMA_OUT_LINK)) = (uint32_t)(uintptr_t)s->tx & GDMA_LINK_ADDR_M;
