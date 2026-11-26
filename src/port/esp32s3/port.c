@@ -37,9 +37,9 @@ typedef struct
     uint32_t            count;              /* descriptors in a chain */
     uint32_t            width;
     int                 peri;               /* PERI_SEL in use, -1 none */
-    uint32_t            ext_part;           /* a free-running transfer from the external RAM: the bytes of a descriptor (0: another kind) */
-    uint32_t            ext_bytes;          /* ... and the bytes of the whole buffer */
-    const void         *ext_source;         /* ... and where it is (the same transfer started again only re-arms the chain: no allocation) */
+    uint32_t            part;               /* the bytes of a descriptor (the last one takes the rest): the chains are the same shape while count and part are */
+    uint32_t            ext_part;           /* the source is in the external RAM: the bytes of a descriptor (0: not) */
+    bool                ext_free;           /* ... and the transfer is free-running (circular memory -> peripheral: no write-back, no events) */
 } stream_t;
 
 static stream_t streams[ESP32S3_GDMA_CHANNELS];
@@ -267,8 +267,10 @@ dmod_dmdma_port_api_declaration(1.0, int, _stream_start_ex,
     /* the memory side(s): in the internal RAM, incrementing (the peripheral side has no address) */
     const uint8_t *src = m2m || m2p ? (const uint8_t *)config->source_address : NULL;
     uint8_t *dst = m2m || !m2p ? (uint8_t *)config->destination_address : NULL;
-    /* the source of a circular memory -> peripheral transfer may be in the external RAM: a frame buffer scanned out forever */
-    bool ext_src = m2p && config->circular && src != NULL && external_ram(src, bytes);
+    /* the source may be in the external RAM (PSRAM): a circular memory -> peripheral transfer (a frame buffer scanned out forever) or a one-shot
+     * memory -> memory one (a part of it copied into the internal RAM) */
+    bool ext_free = m2p && config->circular;
+    bool ext_src = (ext_free || m2m) && src != NULL && external_ram(src, bytes);
     if (ext_src && ((((uintptr_t)src | bytes) & ((16U << external_block_mode()) - 1U)) != 0U || !config->source_increment))
         return config->source_increment ? -EINVAL : -ENOTSUP;
     if ((src != NULL && ((!internal_ram(src, bytes) && !ext_src) || !config->source_increment)) ||
@@ -279,30 +281,32 @@ dmod_dmdma_port_api_declaration(1.0, int, _stream_start_ex,
     if ((m2m || !m2p) && dst == NULL)
         return -EINVAL;
 
+    /* the shape of the chains */
+    uint32_t count;
+    uint32_t part;
+    if (ext_src)
+    {
+        part = 4095U & ~((16U << external_block_mode()) - 1U);                                  /* no halves, any number of descriptors */
+        count = (bytes + part - 1U) / part;
+    }
+    else
+    {
+        count = (bytes + GDMA_DESC_SIZE_MAX - 1U) / GDMA_DESC_SIZE_MAX;
+        if (config->circular)
+            count = count < 2U ? 2U : (count + (count & 1U));          /* a ring of two halves at least; bytes has to give each a byte */
+        if (config->circular && bytes < count)
+            return -EINVAL;
+        part = (bytes + count - 1U) / count;
+    }
+
     /* a transfer that is running is replaced */
     s->running = false;
     channel_halt(stream);
-    bool again = ext_src && s->ext_part != 0U && s->tx != NULL && s->ext_source == (const void *)src && s->ext_bytes == bytes;
+    /* the same shape as the last one: the chains are only built again (no allocation: that is what an interrupt may do) */
+    bool again = s->count == count && s->part == part && (src != NULL) == (s->tx != NULL) && (dst != NULL) == (s->rx != NULL);
     if (!again)
     {
         free_chains(s);
-
-        uint32_t count;
-        uint32_t part;
-        if (ext_src)
-        {
-            part = 4095U & ~((16U << external_block_mode()) - 1U);                              /* free-running: no halves, any number of descriptors */
-            count = (bytes + part - 1U) / part;
-        }
-        else
-        {
-            count = (bytes + GDMA_DESC_SIZE_MAX - 1U) / GDMA_DESC_SIZE_MAX;
-            if (config->circular)
-                count = count < 2U ? 2U : (count + (count & 1U));      /* a ring of two halves at least; bytes has to give each a byte */
-            if (config->circular && bytes < count)
-                return -EINVAL;
-            part = (bytes + count - 1U) / count;
-        }
         if (src != NULL)
         {
             s->tx = Dmod_MallocTagged("dma", count * sizeof(gdma_desc_t));
@@ -324,18 +328,18 @@ dmod_dmdma_port_api_declaration(1.0, int, _stream_start_ex,
             free_chains(s);
             return -ENOMEM;                                             /* the "dma" heap is not the internal RAM */
         }
-        s->ext_part = ext_src ? part : 0U;
-        s->ext_bytes = bytes;
-        s->ext_source = ext_src ? (const void *)src : NULL;
         s->count = count;
-        s->circular = config->circular;
-        s->direction = config->direction;
-        s->width = width;
-        if (s->tx != NULL)
-            build_chain(s->tx, count, part, src, bytes, false, config->circular);
-        if (s->rx != NULL)
-            build_chain(s->rx, count, part, dst, bytes, true, config->circular);
+        s->part = part;
     }
+    s->ext_part = ext_src ? part : 0U;
+    s->ext_free = ext_src && ext_free;
+    s->circular = config->circular;
+    s->direction = config->direction;
+    s->width = width;
+    if (s->tx != NULL)
+        build_chain(s->tx, count, part, src, bytes, false, config->circular);
+    if (s->rx != NULL)
+        build_chain(s->rx, count, part, dst, bytes, true, config->circular);
 
     uint32_t pri = (uint32_t)config->priority * 5U;                 /* low 0, medium 5, high 10, very high 15 */
     uint32_t peri = m2m ? m2m_peri(stream) : (uint32_t)config->request;
@@ -399,7 +403,7 @@ dmod_dmdma_port_api_declaration(1.0, size_t, _stream_get_remaining, (dmdma_contr
 
     if (chain == NULL || s->width == 0U)
         return 0U;
-    if (s->ext_part != 0U)
+    if (s->ext_free)
     {
         /* free-running: the owner bits never change, the position is the descriptor the channel works on (the granularity of a descriptor) */
         uint32_t current = *reg(GDMA_REG(stream, GDMA_OUT_DSCR));
@@ -409,8 +413,9 @@ dmod_dmdma_port_api_declaration(1.0, size_t, _stream_get_remaining, (dmdma_contr
         uint32_t index = (current - base) / (uint32_t)sizeof(gdma_desc_t);
         if (index >= s->count)
             index = 0U;
-        uint32_t done = index * s->ext_part;
-        return (done < s->ext_bytes ? s->ext_bytes - done : 0U) / s->width;
+        uint32_t done = index * s->part;
+        uint32_t total = s->count * s->part;
+        return (done < total ? total - done : 0U) / s->width;
     }
     for (uint32_t i = 0; i < s->count; i++)
     {
