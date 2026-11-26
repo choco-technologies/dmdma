@@ -14,7 +14,10 @@
  * descriptors come from the heap tagged "dma" (the internal RAM the DMA reaches). The peripheral is not addressed by a register:
  * `request` is its PERI_SEL (SPI2 0, SPI3 1, UHCI0 2, I2S0 3, I2S1 4, LCD_CAM 5, AES 6, SHA 7, ADC 8, RMT 9) and the address on the
  * peripheral side of the transfer config is ignored. The memory buffers have to be in the internal RAM (the external RAM is behind the
- * cache); source and destination widths are equal (the GDMA moves bytes); the options of the STM32 DMA (flow controller of the
+ * cache) - except the source of a circular memory -> peripheral transfer, which may be in the external RAM (PSRAM): a frame buffer that a
+ * display controller scans out. That transfer is free-running: the descriptors are not given back (no write-back), it raises no events but an
+ * error, and it needs the address and the size aligned to the line of the data cache (the block of the access to the external RAM: 16, 32 or 64 bytes, read from the cache); the CPU writes have to
+ * reach the PSRAM (the cache written back) before the GDMA reads them; source and destination widths are equal (the GDMA moves bytes); the options of the STM32 DMA (flow controller of the
  * peripheral, FIFO, bursts) are not supported (-ENOTSUP).
  *
  * The end of a transfer is read from the owner bits of the descriptors: the GDMA clears the owner bit of a descriptor it has finished
@@ -34,6 +37,9 @@ typedef struct
     uint32_t            count;              /* descriptors in a chain */
     uint32_t            width;
     int                 peri;               /* PERI_SEL in use, -1 none */
+    uint32_t            ext_part;           /* a free-running transfer from the external RAM: the bytes of a descriptor (0: another kind) */
+    uint32_t            ext_bytes;          /* ... and the bytes of the whole buffer */
+    const void         *ext_source;         /* ... and where it is (the same transfer started again only re-arms the chain: no allocation) */
 } stream_t;
 
 static stream_t streams[ESP32S3_GDMA_CHANNELS];
@@ -69,6 +75,20 @@ static bool internal_ram(const void *address, size_t size)
     return start >= ESP32S3_INTERNAL_RAM_START && start < ESP32S3_INTERNAL_RAM_END && size <= ESP32S3_INTERNAL_RAM_END - start;
 }
 
+/* The line of the data cache: the GDMA has to read the external RAM in blocks of exactly that size (a block smaller than the line fills
+ * the line half-way and the CPU reads garbage afterwards), the address and the size of the transfer are multiples of it */
+static uint32_t external_block_mode(void)
+{
+    uint32_t mode = (*(volatile uint32_t *)ESP32S3_EXTMEM_DCACHE_CTRL_REG >> 3) & 3U;
+    return mode > 2U ? 2U : mode;
+}
+
+static bool external_ram(const void *address, size_t size)
+{
+    uintptr_t start = (uintptr_t)address;
+    return start >= ESP32S3_EXTERNAL_RAM_START && start < ESP32S3_EXTERNAL_RAM_END && size <= ESP32S3_EXTERNAL_RAM_END - start;
+}
+
 static void free_chains(stream_t *s)
 {
     if (s->tx != NULL)
@@ -100,10 +120,9 @@ static void rearm(gdma_desc_t *chain, uint32_t from, uint32_t to, bool receive)
     }
 }
 
-/* Cuts `bytes` at `buffer` into `count` descriptors (equal parts, the last one takes the rest); `next` of the last one loops when circular */
-static void build_chain(gdma_desc_t *chain, uint32_t count, const uint8_t *buffer, uint32_t bytes, bool receive, bool circular)
+/* Cuts `bytes` at `buffer` into `count` descriptors of `part` bytes (the last one takes the rest); `next` of the last one loops when circular */
+static void build_chain(gdma_desc_t *chain, uint32_t count, uint32_t part, const uint8_t *buffer, uint32_t bytes, bool receive, bool circular)
 {
-    uint32_t part = (bytes + count - 1U) / count;
     uint32_t done = 0;
 
     for (uint32_t i = 0; i < count; i++)
@@ -235,7 +254,9 @@ dmod_dmdma_port_api_declaration(1.0, int, _stream_start_ex,
     uint32_t width = (uint32_t)config->source_width;
     if (config->element_count == 0U || config->source_width != config->destination_width)
         return -EINVAL;
-    if (config->element_count > 0x40000U / width)
+    /* a frame buffer of the external RAM scanned out forever (see below) may be as large as the whole window; any other transfer: 256 kB */
+    uint32_t limit = (m2p && config->circular && external_ram(config->source_address, 1U)) ? (ESP32S3_EXTERNAL_RAM_END - ESP32S3_EXTERNAL_RAM_START) : 0x40000U;
+    if (config->element_count > limit / width)
         return -EINVAL;
     uint32_t bytes = (uint32_t)config->element_count * width;
     if (!m2m && config->request > GDMA_PERI_MAX)
@@ -246,7 +267,11 @@ dmod_dmdma_port_api_declaration(1.0, int, _stream_start_ex,
     /* the memory side(s): in the internal RAM, incrementing (the peripheral side has no address) */
     const uint8_t *src = m2m || m2p ? (const uint8_t *)config->source_address : NULL;
     uint8_t *dst = m2m || !m2p ? (uint8_t *)config->destination_address : NULL;
-    if ((src != NULL && (!internal_ram(src, bytes) || !config->source_increment)) ||
+    /* the source of a circular memory -> peripheral transfer may be in the external RAM: a frame buffer scanned out forever */
+    bool ext_src = m2p && config->circular && src != NULL && external_ram(src, bytes);
+    if (ext_src && ((((uintptr_t)src | bytes) & ((16U << external_block_mode()) - 1U)) != 0U || !config->source_increment))
+        return config->source_increment ? -EINVAL : -ENOTSUP;
+    if ((src != NULL && ((!internal_ram(src, bytes) && !ext_src) || !config->source_increment)) ||
         (dst != NULL && (!internal_ram(dst, bytes) || !config->destination_increment)))
         return (src != NULL && !config->source_increment) || (dst != NULL && !config->destination_increment) ? -ENOTSUP : -EINVAL;
     if ((m2m || m2p) && src == NULL)
@@ -257,42 +282,60 @@ dmod_dmdma_port_api_declaration(1.0, int, _stream_start_ex,
     /* a transfer that is running is replaced */
     s->running = false;
     channel_halt(stream);
-    free_chains(s);
-
-    uint32_t count = (bytes + GDMA_DESC_SIZE_MAX - 1U) / GDMA_DESC_SIZE_MAX;
-    if (config->circular)
-        count = count < 2U ? 2U : (count + (count & 1U));          /* a ring of two halves at least; bytes has to give each a byte */
-    if (config->circular && bytes < count)
-        return -EINVAL;
-    if (src != NULL)
-    {
-        s->tx = Dmod_MallocTagged("dma", count * sizeof(gdma_desc_t));
-        if (s->tx == NULL)
-            return -ENOMEM;
-    }
-    if (dst != NULL)
-    {
-        s->rx = Dmod_MallocTagged("dma", count * sizeof(gdma_desc_t));
-        if (s->rx == NULL)
-        {
-            free_chains(s);
-            return -ENOMEM;
-        }
-    }
-    if (!internal_ram(s->tx != NULL ? (void *)s->tx : (void *)s->rx, count * sizeof(gdma_desc_t)) ||
-        (s->tx != NULL && s->rx != NULL && !internal_ram(s->rx, count * sizeof(gdma_desc_t))))
+    bool again = ext_src && s->ext_part != 0U && s->tx != NULL && s->ext_source == (const void *)src && s->ext_bytes == bytes;
+    if (!again)
     {
         free_chains(s);
-        return -ENOMEM;                                             /* the "dma" heap is not the internal RAM */
+
+        uint32_t count;
+        uint32_t part;
+        if (ext_src)
+        {
+            part = 4095U & ~((16U << external_block_mode()) - 1U);                              /* free-running: no halves, any number of descriptors */
+            count = (bytes + part - 1U) / part;
+        }
+        else
+        {
+            count = (bytes + GDMA_DESC_SIZE_MAX - 1U) / GDMA_DESC_SIZE_MAX;
+            if (config->circular)
+                count = count < 2U ? 2U : (count + (count & 1U));      /* a ring of two halves at least; bytes has to give each a byte */
+            if (config->circular && bytes < count)
+                return -EINVAL;
+            part = (bytes + count - 1U) / count;
+        }
+        if (src != NULL)
+        {
+            s->tx = Dmod_MallocTagged("dma", count * sizeof(gdma_desc_t));
+            if (s->tx == NULL)
+                return -ENOMEM;
+        }
+        if (dst != NULL)
+        {
+            s->rx = Dmod_MallocTagged("dma", count * sizeof(gdma_desc_t));
+            if (s->rx == NULL)
+            {
+                free_chains(s);
+                return -ENOMEM;
+            }
+        }
+        if (!internal_ram(s->tx != NULL ? (void *)s->tx : (void *)s->rx, count * sizeof(gdma_desc_t)) ||
+            (s->tx != NULL && s->rx != NULL && !internal_ram(s->rx, count * sizeof(gdma_desc_t))))
+        {
+            free_chains(s);
+            return -ENOMEM;                                             /* the "dma" heap is not the internal RAM */
+        }
+        s->ext_part = ext_src ? part : 0U;
+        s->ext_bytes = bytes;
+        s->ext_source = ext_src ? (const void *)src : NULL;
+        s->count = count;
+        s->circular = config->circular;
+        s->direction = config->direction;
+        s->width = width;
+        if (s->tx != NULL)
+            build_chain(s->tx, count, part, src, bytes, false, config->circular);
+        if (s->rx != NULL)
+            build_chain(s->rx, count, part, dst, bytes, true, config->circular);
     }
-    s->count = count;
-    s->circular = config->circular;
-    s->direction = config->direction;
-    s->width = width;
-    if (s->tx != NULL)
-        build_chain(s->tx, count, src, bytes, false, config->circular);
-    if (s->rx != NULL)
-        build_chain(s->rx, count, dst, bytes, true, config->circular);
 
     uint32_t pri = (uint32_t)config->priority * 5U;                 /* low 0, medium 5, high 10, very high 15 */
     uint32_t peri = m2m ? m2m_peri(stream) : (uint32_t)config->request;
@@ -312,12 +355,15 @@ dmod_dmdma_port_api_declaration(1.0, int, _stream_start_ex,
     }
     if (s->tx != NULL)
     {
-        *reg(GDMA_REG(stream, GDMA_OUT_CONF0)) = GDMA_OUT_CONF0_AUTO_WRBACK;
+        *reg(GDMA_REG(stream, GDMA_OUT_CONF0)) = ext_src ? (GDMA_OUT_CONF0_DATA_BURST_EN | GDMA_OUT_CONF0_OUTDSCR_BURST_EN)
+                                                         : GDMA_OUT_CONF0_AUTO_WRBACK;
+        *reg(GDMA_REG(stream, GDMA_OUT_CONF1)) = ext_src ? (external_block_mode() << GDMA_OUT_CONF1_EXT_MEM_BK_S) : 0U;
         *reg(GDMA_REG(stream, GDMA_OUT_PERI_SEL)) = peri;
         *reg(GDMA_REG(stream, GDMA_OUT_PRI)) = pri;
         *reg(GDMA_REG(stream, GDMA_OUT_LINK)) = (uint32_t)(uintptr_t)s->tx & GDMA_LINK_ADDR_M;
         *reg(GDMA_REG(stream, GDMA_OUT_INT_CLR)) = GDMA_OUT_INT_FIFO_ALL;
-        *reg(GDMA_REG(stream, GDMA_OUT_INT_ENA)) = GDMA_OUT_INT_DONE | GDMA_OUT_INT_DSCR_ERR | GDMA_OUT_INT_TOTAL_EOF;
+        *reg(GDMA_REG(stream, GDMA_OUT_INT_ENA)) = ext_src ? GDMA_OUT_INT_DSCR_ERR
+                                                           : (GDMA_OUT_INT_DONE | GDMA_OUT_INT_DSCR_ERR | GDMA_OUT_INT_TOTAL_EOF);
         *reg(GDMA_REG(stream, GDMA_OUT_LINK)) |= GDMA_OUTLINK_START;
     }
     return 0;
@@ -352,6 +398,19 @@ dmod_dmdma_port_api_declaration(1.0, size_t, _stream_get_remaining, (dmdma_contr
 
     if (chain == NULL || s->width == 0U)
         return 0U;
+    if (s->ext_part != 0U)
+    {
+        /* free-running: the owner bits never change, the position is the descriptor the channel works on (the granularity of a descriptor) */
+        uint32_t current = *reg(GDMA_REG(stream, GDMA_OUT_DSCR));
+        uint32_t base = (uint32_t)(uintptr_t)chain;
+        if (current < 0x100000UL)
+            base &= 0xFFFFFU;                           /* only the low 20 bits of the address */
+        uint32_t index = (current - base) / (uint32_t)sizeof(gdma_desc_t);
+        if (index >= s->count)
+            index = 0U;
+        uint32_t done = index * s->ext_part;
+        return (done < s->ext_bytes ? s->ext_bytes - done : 0U) / s->width;
+    }
     for (uint32_t i = 0; i < s->count; i++)
     {
         if (chain[i].dw0 & GDMA_DESC_OWNER)
