@@ -780,7 +780,8 @@ dmod_dmdma_api_declaration(1.0, dmdma_lease_t, _lease_acquire,
     dmdma_stream_slot_t *slot = &context->streams[stream];
     if (slot->reserved)
     {
-        DMOD_LOG_ERROR("dmdma: stream %u/%u already reserved\n", (unsigned)controller, (unsigned)stream);
+        /* No message: a driver that needs "some" stream probes them one after another (dmspi: the first free one), a taken stream is the
+         * expected answer. A message here hung the SD card of the Elecrow board while the display held the first stream. */
         return NULL;
     }
 
