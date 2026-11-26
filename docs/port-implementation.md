@@ -65,13 +65,21 @@ What differs from the STM32 DMA, and so from the transfer config:
   not see (`-EINVAL` otherwise). On dmod-boot the heap puts allocations in the external RAM first, so take buffers from the `"dma"`
   heap (`Dmod_MallocTagged("dma", size)`); a module's static data is not in the internal RAM either.
 * Source and destination widths are equal (the GDMA moves bytes), the memory side increments; flow control by the peripheral, FIFO and
-  bursts are not supported (`-ENOTSUP`). A transfer is at most 256 KB.
+  bursts are not supported (`-ENOTSUP`). A transfer is at most 256 KB (not the frame buffer of the external RAM, below).
 * A memory-to-memory transfer needs the PERI_SEL of a peripheral that can do it; the port takes the highest one (9 down to 1) that no
   other running stream is bound to.
 * The end of a transfer is read from the owner bits of the descriptors (the GDMA clears them). `get_remaining()` therefore has the
   granularity of a descriptor. A circular transfer (peripheral directions only) is a ring of an even number of descriptors: the first
   half finished is `dmdma_event_half_complete`, the second one `dmdma_event_complete`.
 * All ten interrupt sources go to one level 1 line of the CPU (17).
+* **A frame buffer in the external RAM (PSRAM)**: the one exception to the internal RAM rule is the source of a *circular memory ->
+  peripheral* transfer (a display scanned out forever). It runs free: no half events, no completion (the owner bits are never cleared, only
+  the descriptor error interrupt is on), the transfer may be as large as the whole window (0x3C000000..0x3E000000). The GDMA has to read the
+  external RAM in blocks of the size of the line of the data cache (16, 32 or 64 bytes, read from `EXTMEM_DCACHE_CTRL_REG`) - a smaller block
+  fills the line half-way and the CPU reads garbage afterwards - so the address and the size of the transfer are multiples of it
+  (`-EINVAL`). The CPU writes have to be written back to the PSRAM first (`Cache_WriteBack_Addr` of the ROM). `get_remaining()` is the
+  position of the stream (the descriptor it works on, 4 kB granularity) and starting the same transfer again only re-arms the chain (no
+  allocation: it may be done from an interrupt, e.g. at every vertical sync of a display).
 
 `tests/dmdma_test_port` takes the controller and a size limit as optional arguments (`dmdma_test_port <file> 0 12000` on the ESP32-S3);
 `dmdma_test_lease` uses static buffers and so does not apply to it as it is.

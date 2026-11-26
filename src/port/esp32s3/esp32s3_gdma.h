@@ -41,10 +41,16 @@
 #define GDMA_CONF0_RST                  (1UL << 0)
 #define GDMA_IN_CONF0_MEM_TRANS_EN      (1UL << 4)      /* the IN side receives what the OUT side of the same channel sends */
 #define GDMA_OUT_CONF0_AUTO_WRBACK      (1UL << 2)      /* the owner bit of a sent descriptor is cleared */
+#define GDMA_OUT_CONF0_OUTDSCR_BURST_EN (1UL << 4)      /* the descriptors are read in bursts */
+#define GDMA_OUT_CONF0_DATA_BURST_EN    (1UL << 5)      /* the data is read in bursts (needed for the external RAM) */
+/* OUT_CONF1: the block of the access to the external RAM, bits [14:13]: 0 16 bytes, 1 32 bytes */
+#define GDMA_OUT_CONF1_EXT_MEM_BK_S     13U         /* the block of the external RAM: 0 16 B, 1 32 B, 2 64 B - the line of the data cache */
+#define ESP32S3_EXTMEM_DCACHE_CTRL_REG  0x600C4000UL   /* bits 4:3 the block size of the data cache (the same encoding) */
 /* IN_LINK / OUT_LINK: the address (the low 20 bits; the RAM is at 0x3FCxxxxx), the controls */
 #define GDMA_LINK_ADDR_M                0x000FFFFFUL
 #define GDMA_INLINK_STOP                (1UL << 21)
 #define GDMA_INLINK_START               (1UL << 22)
+#define GDMA_OUT_DSCR                   0x90UL      /* the address of the descriptor the OUT channel is working on */
 #define GDMA_OUTLINK_STOP               (1UL << 20)
 #define GDMA_OUTLINK_START              (1UL << 21)
 /* Interrupts */
@@ -93,5 +99,9 @@ typedef struct
 /* The internal RAM (the data bus): what the GDMA reaches without the cache and what its descriptors can address */
 #define ESP32S3_INTERNAL_RAM_START      0x3FC88000UL
 #define ESP32S3_INTERNAL_RAM_END        0x3FCF0000UL
+/* The external RAM (PSRAM) in the window of the data cache: the GDMA reads it in blocks of 32 bytes, so the address and the size of every
+   descriptor are multiples of 32 (4064 = 127 * 32 bytes at most) */
+#define ESP32S3_EXTERNAL_RAM_START      0x3C000000UL
+#define ESP32S3_EXTERNAL_RAM_END        0x3E000000UL
 
 #endif /* ESP32S3_GDMA_H */
