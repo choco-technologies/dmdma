@@ -72,14 +72,18 @@ What differs from the STM32 DMA, and so from the transfer config:
   granularity of a descriptor. A circular transfer (peripheral directions only) is a ring of an even number of descriptors: the first
   half finished is `dmdma_event_half_complete`, the second one `dmdma_event_complete`.
 * All ten interrupt sources go to one level 1 line of the CPU (17).
-* **A frame buffer in the external RAM (PSRAM)**: the one exception to the internal RAM rule is the source of a *circular memory ->
-  peripheral* transfer (a display scanned out forever). It runs free: no half events, no completion (the owner bits are never cleared, only
-  the descriptor error interrupt is on), the transfer may be as large as the whole window (0x3C000000..0x3E000000). The GDMA has to read the
-  external RAM in blocks of the size of the line of the data cache (16, 32 or 64 bytes, read from `EXTMEM_DCACHE_CTRL_REG`) - a smaller block
-  fills the line half-way and the CPU reads garbage afterwards - so the address and the size of the transfer are multiples of it
-  (`-EINVAL`). The CPU writes have to be written back to the PSRAM first (`Cache_WriteBack_Addr` of the ROM). `get_remaining()` is the
-  position of the stream (the descriptor it works on, 4 kB granularity) and starting the same transfer again only re-arms the chain (no
-  allocation: it may be done from an interrupt, e.g. at every vertical sync of a display).
+* **A frame buffer in the external RAM (PSRAM)**: the exceptions to the internal RAM rule are the source of a *circular memory ->
+  peripheral* transfer (a display scanned out forever) and the source of a *one-shot memory -> memory* transfer (a part of a frame buffer
+  copied into a bounce buffer in the internal RAM; the destination stays in the internal RAM). The circular one runs free: no half events,
+  no completion (the owner bits are never cleared, only the descriptor error interrupt is on), the transfer may be as large as the whole window
+  (0x3C000000..0x3E000000); the memory -> memory one fires its completion like any other. The GDMA has to read the external RAM in blocks of
+  the size of the line of the data cache (16, 32 or 64 bytes, read from `EXTMEM_DCACHE_CTRL_REG`) - a smaller block fills the line half-way
+  and the CPU reads garbage afterwards - so the address and the size of the transfer are multiples of it (`-EINVAL`). The CPU writes have to
+  be written back to the PSRAM first (`Cache_WriteBack_Addr` of the ROM). For the free-running one `get_remaining()` is the position of the
+  stream (the descriptor it works on, 4 kB granularity).
+* **A transfer of the same shape again**: a transfer with as many descriptors of as many bytes as the last one on the stream (and the same
+  sides) builds its chains again in place - no allocation, so it may be started from an interrupt (a display copies the next part of a frame
+  from the interrupt of the half the LCD has taken, and starts its ring again at every vertical sync).
 
 `tests/dmdma_test_port` takes the controller and a size limit as optional arguments (`dmdma_test_port <file> 0 12000` on the ESP32-S3);
 `dmdma_test_lease` uses static buffers and so does not apply to it as it is.
